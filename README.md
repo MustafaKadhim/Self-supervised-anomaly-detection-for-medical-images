@@ -1,17 +1,17 @@
 <div align="center">
 
-<img src="figures/logo.svg" alt="Anomaly Detection Logo" width="600"/>
+<img src="figures/Anomaly_detection_official_logo_noBg.png" alt="Anomaly Detection Logo" width="300"/>
 
 # Self-Supervised Anomaly Detection for Medical Images
 
-[![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![PyTorch](https://img.shields.io/badge/PyTorch-1.12%2B-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org)
+[![Python](https://img.shields.io/badge/Python%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch%2B-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22863a?style=for-the-badge)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-1f6feb?style=for-the-badge)](https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/pulls)
 
-*A modular, research-ready framework for detecting anomalies in medical images without requiring any anomalous training samples.*
+*A research-ready framework for detecting anomalies in medical images without requiring any anomalous training samples.*
 
-[🚀 Quickstart](#-quickstart) · [🏗 Architecture](#-architecture) · [🧪 Experiments](#-experiments) · [📊 Results](#-results) · [📁 Repository Structure](#-repository-structure)
+[🚀 Quickstart](#-quickstart) · [🔖 Citation](#-citation) · [🏗 Architecture](#-architecture) · [🧪 Experiments](#-experiments) · [📊 Results](#-results) · [📁 Repository Structure](#-repository-structure)
 
 </div>
 
@@ -26,22 +26,31 @@
 - **Two complete experiments** — Pelvic MRI and Brain MRI with reproducible training scripts
 
 ---
+## 🔖 Citation
 
-## 🏗 Architecture
+If you find our work interesting, please cite our work:
+```
+@inproceedings{
+placeholder,
+title={Catching MRI outliers: etc.......},
+author={M. Kadhim. V. Rogiwski etc........},
+booktitle={Phiro-2026 ........ },
+year={2026},
+url={Phiro-webpage ....... }
+}
+```
+
+## 🏗 Framework overview
 
 The core idea is elegantly simple: train an autoencoder to perfectly reconstruct **healthy** images. At test time, anomalous regions produce high reconstruction error — forming a pixel-level **anomaly map**.
 
 <div align="center">
-<img src="figures/architecture.svg" alt="Framework Architecture" width="860"/>
+<img src="figures/Figure 1. Framework overview (10).png" alt="Framework Architecture" width="600"/>
 </div>
 
-### Pipeline
+### Figure caption: 
 
 ```
-Input Image  ──►  Encoder  ──►  Latent z  ──►  Decoder  ──►  Reconstruction
-                     │                              ▲
-                     └──── Skip Connections ────────┘
-
 Anomaly Map  =  |Input − Reconstruction|
 Anomaly Score = percentile₉₅(Anomaly Map)
 ```
