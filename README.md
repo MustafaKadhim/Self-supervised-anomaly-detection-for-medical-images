@@ -23,10 +23,9 @@
 - **Plug-and-play** — Our framework is fully customizable and allow modifications based on your task needs. 
 - **Two evaluation experiments** — We developed and tested our framework using publically available pelvic and brain MRI datasets. All scripts are provided above for reproducibility.
 - **Public datasets** — We utilized LUND-PORBE for pelvis, and IXI, fastMRI, and fastMRI+ (for annotations) for brain experiments.
-
 ---
-## 🔖 Citation
 
+## 🔖 Citation
 If you find our work interesting, please cite our work:
 ```
 @inproceedings{
@@ -53,18 +52,6 @@ The core idea is elegantly simple: train an autoencoder to perfectly reconstruct
 Anomaly Map  =  |Input − Reconstruction|
 Anomaly Score = percentile₉₅(Anomaly Map)
 ```
-
-### Loss Function
-
-$$\mathcal{L} = \lambda_1 \cdot \mathcal{L}_{\text{L1}} + \lambda_2 \cdot \mathcal{L}_{\text{SSIM}} + \lambda_3 \cdot \mathcal{L}_{\text{Perceptual}}$$
-
-| Component | Purpose |
-|-----------|---------|
-| **L1** | Pixel-level fidelity — punishes mean absolute deviation |
-| **SSIM** | Structural similarity — preserves textures and edges |
-| **Perceptual** | Feature-level fidelity — preserves semantic content |
-
----
 
 ## 🚀 Quickstart
 
