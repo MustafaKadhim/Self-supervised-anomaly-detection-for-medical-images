@@ -77,17 +77,6 @@ print(out["anomaly_map"].shape)           # (1, 1, 128, 128)
 print(out["latent"].shape)                # (1, 256)
 ```
 
-### Data Format
-
-```
-data/
-  train/
-    normal/       ← Healthy images only (used for training)
-  test/
-    normal/       ← Healthy test images  (label = 0)
-    anomaly/      ← Anomalous images     (label = 1)
-```
-
 ---
 
 ## 🧪 Experiments
