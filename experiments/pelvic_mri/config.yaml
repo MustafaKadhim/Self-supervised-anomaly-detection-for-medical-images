@@ -1,0 +1,44 @@
+# ──────────────────────────────────────────────────────
+# Pelvic MRI Anomaly Detection — Experiment Configuration
+# ──────────────────────────────────────────────────────
+
+experiment:
+  name: "pelvic_mri_anomaly_detection"
+  description: >
+    Self-supervised anomaly detection on Pelvic MRI scans.
+    The model is trained on healthy pelvic MRI slices and evaluated
+    on slices containing annotated lesions / abnormalities.
+  seed: 42
+
+data:
+  root: "experiments/pelvic_mri/data"
+  image_size: 128        # Resize all images to (image_size × image_size)
+  grayscale: true
+  train_val_split: 0.9   # 90 % train, 10 % validation from the normal training set
+  num_workers: 4
+  pin_memory: true
+
+model:
+  in_channels: 1
+  latent_dim: 256
+  base_channels: 32
+  use_skip: true
+
+training:
+  num_epochs: 150
+  batch_size: 16
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-5
+  # Loss weights
+  l1_weight: 1.0
+  ssim_weight: 1.0
+  perceptual_weight: 0.1
+
+evaluation:
+  anomaly_score_reduction: "percentile95"   # mean | max | percentile95
+  batch_size: 32
+
+output:
+  checkpoint_dir: "experiments/pelvic_mri/checkpoints"
+  results_dir: "experiments/pelvic_mri/results"
+  log_level: "INFO"

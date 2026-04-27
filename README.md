@@ -1,1 +1,279 @@
-# Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images
+<div align="center">
+
+<img src="figures/logo.svg" alt="Anomaly Detection Logo" width="600"/>
+
+# Self-Supervised Anomaly Detection for Medical Images
+
+[![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-1.12%2B-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22863a?style=for-the-badge)](LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-1f6feb?style=for-the-badge)](https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/pulls)
+
+*A modular, research-ready framework for detecting anomalies in medical images without requiring any anomalous training samples.*
+
+[🚀 Quickstart](#-quickstart) · [🏗 Architecture](#-architecture) · [🧪 Experiments](#-experiments) · [📊 Results](#-results) · [📁 Repository Structure](#-repository-structure)
+
+</div>
+
+---
+
+## 🌟 Highlights
+
+- **No anomalous labels required** — trains exclusively on healthy images using self-supervised reconstruction
+- **State-of-the-art loss** — combined L1 + SSIM + Perceptual loss for high-quality image reconstruction
+- **U-Net skip connections** — preserve fine-grained anatomy for faithful normal-region reconstruction
+- **Plug-and-play** — swap datasets by editing a single YAML config
+- **Two complete experiments** — Pelvic MRI and Brain MRI with reproducible training scripts
+
+---
+
+## 🏗 Architecture
+
+The core idea is elegantly simple: train an autoencoder to perfectly reconstruct **healthy** images. At test time, anomalous regions produce high reconstruction error — forming a pixel-level **anomaly map**.
+
+<div align="center">
+<img src="figures/architecture.svg" alt="Framework Architecture" width="860"/>
+</div>
+
+### Pipeline
+
+```
+Input Image  ──►  Encoder  ──►  Latent z  ──►  Decoder  ──►  Reconstruction
+                     │                              ▲
+                     └──── Skip Connections ────────┘
+
+Anomaly Map  =  |Input − Reconstruction|
+Anomaly Score = percentile₉₅(Anomaly Map)
+```
+
+### Loss Function
+
+$$\mathcal{L} = \lambda_1 \cdot \mathcal{L}_{\text{L1}} + \lambda_2 \cdot \mathcal{L}_{\text{SSIM}} + \lambda_3 \cdot \mathcal{L}_{\text{Perceptual}}$$
+
+| Component | Purpose |
+|-----------|---------|
+| **L1** | Pixel-level fidelity — punishes mean absolute deviation |
+| **SSIM** | Structural similarity — preserves textures and edges |
+| **Perceptual** | Feature-level fidelity — preserves semantic content |
+
+---
+
+## 🚀 Quickstart
+
+### Installation
+
+```bash
+git clone https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images.git
+cd Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images
+pip install -e .
+```
+
+### Minimal Example
+
+```python
+import torch
+from framework import AnomalyAutoencoder
+
+# Build model
+model = AnomalyAutoencoder(in_channels=1, latent_dim=256)
+
+# Forward pass
+x = torch.randn(1, 1, 128, 128)          # batch of 1 grayscale MRI slice
+out = model(x)
+
+print(out["reconstruction"].shape)        # (1, 1, 128, 128)
+print(out["anomaly_map"].shape)           # (1, 1, 128, 128)
+print(out["latent"].shape)                # (1, 256)
+```
+
+### Data Format
+
+```
+data/
+  train/
+    normal/       ← Healthy images only (used for training)
+  test/
+    normal/       ← Healthy test images  (label = 0)
+    anomaly/      ← Anomalous images     (label = 1)
+```
+
+---
+
+## 🧪 Experiments
+
+Two independent experiments are provided, each with their own config, training script, and evaluation pipeline.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🦴 Pelvic MRI
+
+| | |
+|---|---|
+| Modality | T2-weighted Pelvic MRI |
+| Dataset | PROMISE12 |
+| Image size | 128 × 128 |
+| Latent dim | 256 |
+| Epochs | 150 |
+
+```bash
+# Train
+python experiments/pelvic_mri/train.py
+
+# Evaluate
+python experiments/pelvic_mri/evaluate.py \
+  --checkpoint experiments/pelvic_mri/checkpoints/checkpoint_best.pth \
+  --visualize
+```
+
+📂 [`experiments/pelvic_mri/`](experiments/pelvic_mri/)
+
+</td>
+<td width="50%" valign="top">
+
+### 🧠 Brain MRI
+
+| | |
+|---|---|
+| Modality | T1/T2-weighted Brain MRI |
+| Dataset | BraTS + IXI |
+| Image size | 128 × 128 |
+| Latent dim | 512 |
+| Epochs | 200 |
+
+```bash
+# Train
+python experiments/brain_mri/train.py
+
+# Evaluate
+python experiments/brain_mri/evaluate.py \
+  --checkpoint experiments/brain_mri/checkpoints/checkpoint_best.pth \
+  --visualize
+```
+
+📂 [`experiments/brain_mri/`](experiments/brain_mri/)
+
+</td>
+</tr>
+</table>
+
+---
+
+## 📊 Results
+
+> Results will be populated after running the experiments.
+
+| Experiment | AUROC | AUPRC | FPR @ 95 % TPR |
+|-----------|:-----:|:-----:|:--------------:|
+| Pelvic MRI | — | — | — |
+| Brain MRI  | — | — | — |
+
+### Sample Anomaly Maps
+
+> Anomaly maps are generated by running `evaluate.py --visualize`.
+
+```
+experiments/<experiment>/results/visualizations/
+  sample_XXXX_normal.png    ← Input | Reconstruction | Low anomaly map
+  sample_XXXX_anomaly.png   ← Input | Reconstruction | High anomaly map
+```
+
+---
+
+## 📁 Repository Structure
+
+```
+.
+├── framework/                    # 🏗 Core reusable framework
+│   ├── models/
+│   │   ├── encoder.py            #   Residual convolutional encoder
+│   │   ├── decoder.py            #   U-Net style decoder with skip connections
+│   │   └── autoencoder.py        #   Full AnomalyAutoencoder model
+│   ├── losses/
+│   │   └── anomaly_loss.py       #   L1 + SSIM + Perceptual combined loss
+│   ├── datasets/
+│   │   └── medical_dataset.py    #   Generic medical image dataset loader
+│   ├── trainers/
+│   │   └── anomaly_trainer.py    #   Training loop with checkpointing + LR scheduling
+│   └── utils/
+│       ├── metrics.py            #   AUROC, AUPRC, FPR@95TPR, optimal threshold
+│       └── visualization.py      #   Anomaly map, ROC curve, training curve plots
+│
+├── experiments/
+│   ├── pelvic_mri/               # 🦴 Pelvic MRI experiment
+│   │   ├── config.yaml           #   Hyperparameters
+│   │   ├── train.py              #   Training script
+│   │   ├── evaluate.py           #   Evaluation script
+│   │   └── data/README.md        #   Dataset preparation guide
+│   │
+│   └── brain_mri/                # 🧠 Brain MRI experiment
+│       ├── config.yaml
+│       ├── train.py
+│       ├── evaluate.py
+│       └── data/README.md
+│
+├── figures/                      # 🎨 Visuals used in README
+│   ├── logo.svg
+│   └── architecture.svg
+│
+├── requirements.txt
+├── setup.py
+└── README.md
+```
+
+---
+
+## ⚙️ Configuration
+
+Every aspect of each experiment is controlled by its `config.yaml`:
+
+```yaml
+model:
+  in_channels: 1        # 1 = grayscale, 3 = RGB
+  latent_dim: 256       # Bottleneck size
+  base_channels: 32     # Feature map width
+  use_skip: true        # U-Net skip connections
+
+training:
+  num_epochs: 150
+  batch_size: 16
+  learning_rate: 1.0e-4
+  l1_weight: 1.0
+  ssim_weight: 1.0
+  perceptual_weight: 0.1
+
+evaluation:
+  anomaly_score_reduction: "percentile95"  # mean | max | percentile95
+```
+
+---
+
+## 📚 References
+
+This work builds on ideas from the following papers:
+
+1. **AE-based anomaly detection**  
+   Baur et al. *"Autoencoders for Unsupervised Anomaly Segmentation in Brain MR Images."* 2021.
+
+2. **SSIM for medical image reconstruction**  
+   Wang et al. *"Image Quality Assessment: From Error Visibility to Structural Similarity."* IEEE TIP, 2004.
+
+3. **Self-supervised learning for medical imaging**  
+   Chen et al. *"Self-Supervised Learning for Medical Image Analysis Using Image Context Restoration."* Medical Image Analysis, 2019.
+
+---
+
+## 📜 License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+
+Made with ❤️ for the medical imaging research community
+
+⭐ Star this repo if you find it useful!
+
+</div>

@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.pth
+
+# Virtual environments
+venv/
+env/
+.env/
+.venv/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Data & Checkpoints
+data/
+checkpoints/
+*.pth.tar
+*.ckpt
+*.h5
+*.nii
+*.nii.gz
+*.dcm
+
+# Outputs & Logs
+outputs/
+logs/
+runs/
+wandb/
+*.log
+*.csv
+*.png
+*.jpg
+*.jpeg
+*.gif
+!figures/*.png
+!figures/*.gif
+!figures/*.svg
+!figures/*.jpg
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
