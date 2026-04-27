@@ -1,0 +1,43 @@
+# ──────────────────────────────────────────────────────
+# Brain MRI Anomaly Detection — Experiment Configuration
+# ──────────────────────────────────────────────────────
+
+experiment:
+  name: "brain_mri_anomaly_detection"
+  description: >
+    Self-supervised anomaly detection on Brain MRI scans (T1/T2 weighted).
+    The model is trained exclusively on healthy brain MRI slices and
+    evaluated on slices containing tumours, lesions, or other anomalies.
+  seed: 42
+
+data:
+  root: "experiments/brain_mri/data"
+  image_size: 128
+  grayscale: true
+  train_val_split: 0.9
+  num_workers: 4
+  pin_memory: true
+
+model:
+  in_channels: 1
+  latent_dim: 512          # Larger bottleneck for richer brain anatomy features
+  base_channels: 32
+  use_skip: true
+
+training:
+  num_epochs: 200
+  batch_size: 16
+  learning_rate: 5.0e-5    # Lower LR for fine-grained brain anatomy reconstruction
+  weight_decay: 1.0e-5
+  l1_weight: 1.0
+  ssim_weight: 1.5          # Stronger SSIM emphasis — brain structures are highly regular
+  perceptual_weight: 0.2
+
+evaluation:
+  anomaly_score_reduction: "percentile95"
+  batch_size: 32
+
+output:
+  checkpoint_dir: "experiments/brain_mri/checkpoints"
+  results_dir: "experiments/brain_mri/results"
+  log_level: "INFO"
