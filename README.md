@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="figures/Anomaly_detection_official_logo_noBg.png" alt="Anomaly Detection Logo" width="300" class="center"/>
+<img src="figures/Anomaly_detection_official_logo_noBg.png" alt="Anomaly Detection Logo" width="400" class="center"/>
 
 # Self-Supervised Anomaly Detection for Medical Images
 
