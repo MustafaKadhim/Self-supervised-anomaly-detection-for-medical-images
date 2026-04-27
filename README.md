@@ -11,7 +11,7 @@
 
 *A research-ready framework for detecting anomalies in medical images without requiring any anomalous training samples.*
 
-[🚀 Quickstart](#-quickstart) · [🔖 Citation](#-citation) · [🏗 Architecture](#-architecture) · [🧪 Experiments](#-experiments) · [📊 Results](#-results) · [📁 Repository Structure](#-repository-structure)
+[🚀 Quickstart](#-quickstart) · [🔖 Citation](#-citation) · [🏗 Framework](#-framework) · [🧪 Experiments](#-experiments) · [📊 Results](#-results) · [📁 Repository Structure](#-repository-structure)
 
 </div>
 
@@ -19,10 +19,11 @@
 
 ## 🌟 Highlights
 
-- **No anomalous labels required** — trains exclusively on healthy images using self-supervised reconstruction and token distribution learning
-- **Plug-and-play** — Our framework is fully customizable and allow modifications based on your task needs. 
-- **Two evaluation experiments** — We developed and tested our framework using publically available pelvic and brain MRI datasets. All scripts are provided above for reproducibility.
-- **Public datasets** — We utilized LUND-PORBE for pelvis, and IXI, fastMRI, and fastMRI+ (for annotations) for brain experiments.
+- 🔸**No anomalous labels required:** Trains exclusively on healthy images using self-supervised reconstruction and token distribution learning
+- 🔸**Plug-and-play:** Fully customizable and allows modifications based on your task needs. 
+- 🔸**Two evaluation experiments:** Developed and tested utilizing publically available pelvic and brain MRI datasets. All scripts are provided above for reproducibility.
+- 🔸**Public datasets:** We utilized **LUND-PORBE** for pelvis, and **IXI**, **fastMRI**, and **fastMRI+** (for annotations) for brain experiments.
+
 ---
 
 ## 🔖 Citation
@@ -38,21 +39,17 @@ url={Phiro-webpage ....... }
 }
 ```
 
-## 🏗 Framework overview
+## 🏗 Framework
 
-The core idea is elegantly simple: train an autoencoder to perfectly reconstruct **healthy** images. At test time, anomalous regions produce high reconstruction error — forming a pixel-level **anomaly map**.
+The core idea is fun & simple: train an autoencoder to perfectly reconstruct **healthy** images. At test time, anomalous regions produce high reconstruction error — forming a pixel-level **anomaly map**.
 
 <div align="center">
 <img src="figures/Figure 1. Framework overview (10).png" alt="Framework Architecture" width="600"/>
 </div>
 
-### Figure caption: 
+> **Figure caption:** * To be added later!.*
 
-```
-Anomaly Map  =  |Input − Reconstruction|
-Anomaly Score = percentile₉₅(Anomaly Map)
-```
-
+---
 ## 🚀 Quickstart
 
 ### Installation
