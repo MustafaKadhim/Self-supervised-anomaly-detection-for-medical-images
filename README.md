@@ -4,8 +4,10 @@
 
 # Self-Supervised Anomaly Detection for Medical Images
 
-[![Python](https://img.shields.io/badge/Python%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![PyTorch](https://img.shields.io/badge/PyTorch%2B-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org)
+[![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org)
+[![MONAI](https://img.shields.io/badge/MONAI-69D3A7?style=for-the-badge&logo=MONAI&logoColor=white)](https://project-monai.github.io/)
+[![CUDA](https://img.shields.io/badge/CUDA-76B900?style=for-the-badge&logo=nvidia&logoColor=fff)](https://project-monai.github.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22863a?style=for-the-badge)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-1f6feb?style=for-the-badge)](https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/pulls)
 
