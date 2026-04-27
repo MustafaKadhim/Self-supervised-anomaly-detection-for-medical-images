@@ -16,18 +16,17 @@
 </div>
 
 ---
-
 ## 🌟 Highlights
 
-- 🔸**No anomalous labels required:** Trains exclusively on healthy images using self-supervised reconstruction and token distribution learning
-- 🔸**Plug-and-play:** Fully customizable and allows modifications based on your task needs. 
-- 🔸**Two evaluation experiments:** Developed and tested utilizing publically available pelvic and brain MRI datasets. All scripts are provided above for reproducibility.
-- 🔸**Public datasets:** We utilized **LUND-PORBE** for pelvis, and **IXI**, **fastMRI**, and **fastMRI+** (for annotations) for brain experiments.
+- 🔸 **No anomalous labels required:** Trains exclusively on healthy images using self-supervised reconstruction and token-distribution learning.
+- 🔸 **Plug-and-play framework:** Fully customizable and adaptable to different medical imaging tasks.
+- 🔸 **Two evaluation experiments:** Developed and evaluated using publicly available pelvic and brain MRI datasets, with scripts provided to support reproducibility.
+- 🔸 **Public datasets:** Experiments were performed using [LUND-PROBE](https://datahub.aida.scilifelab.se/10.23698/aida/lund-probe) for pelvic MRI, and [IXI](https://brain-development.org/ixi-dataset/), [fastMRI](https://fastmri.med.nyu.edu/), and [fastMRI+](https://github.com/microsoft/fastmri-plus) for brain MRI experiments and pathology annotations.
 
 ---
 
 ## 🔖 Citation
-If you find our work interesting, please cite our work:
+If you find our work interesting, please cite us:
 ```
 @inproceedings{
 placeholder,
