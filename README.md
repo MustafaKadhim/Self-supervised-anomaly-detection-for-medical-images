@@ -19,11 +19,10 @@
 
 ## 🌟 Highlights
 
-- **No anomalous labels required** — trains exclusively on healthy images using self-supervised reconstruction
-- **State-of-the-art loss** — combined L1 + SSIM + Perceptual loss for high-quality image reconstruction
-- **U-Net skip connections** — preserve fine-grained anatomy for faithful normal-region reconstruction
-- **Plug-and-play** — swap datasets by editing a single YAML config
-- **Two complete experiments** — Pelvic MRI and Brain MRI with reproducible training scripts
+- **No anomalous labels required** — trains exclusively on healthy images using self-supervised reconstruction and token distribution learning
+- **Plug-and-play** — Our framework is fully customizable and allow modifications based on your task needs. 
+- **Two evaluation experiments** — We developed and tested our framework using publically available pelvic and brain MRI datasets. All scripts are provided above for reproducibility.
+- **Public datasets** — We utilized LUND-PORBE for pelvis, and IXI, fastMRI, and fastMRI+ (for annotations) for brain experiments.
 
 ---
 ## 🔖 Citation
