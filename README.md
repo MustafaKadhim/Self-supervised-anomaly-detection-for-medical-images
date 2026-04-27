@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-22863a?style=for-the-badge)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-1f6feb?style=for-the-badge)](https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/pulls)
 
-*A research-ready framework for detecting anomalies in medical images without requiring any anomalous training samples.*
+*A research-ready framework for detecting anomalies in medical images, exclusively using normal training samples.*
 
 [🚀 Quickstart](#-quickstart) · [🔖 Citation](#-citation) · [🏗 Framework](#-framework) · [🧪 Experiments](#-experiments) · [📊 Results](#-results) · [📁 Repository Structure](#-repository-structure)
 
