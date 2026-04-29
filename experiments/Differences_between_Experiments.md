@@ -184,22 +184,14 @@ In the brain pipeline, this extra rendering/export script matters because part o
 | Codebook size | **192** | **256** |
 | Perceptual loss weight | **0.9** | **0.5** |
 | Learning rate | **1e-4** | **2e-4** |
-| Augmentation richness | 2 transforms (scale + affine) | 5 transforms (+contrast, +noise, +zoom, +flip) |
+| Augmentation richness | 3 transforms (scale + affine + flip) | 5 transforms (+contrast, +noise, +zoom, +flip) |
 | Augmentation rotation | **±5°** | **±15°** |
-| Augmentation translation | **±5 px horizontal only** | **±15 px horizontal + vertical** |
+| Augmentation translation | **±5 px** | **±15 px** |
 | Gaussian noise | — | **p=0.50, std=0.30** |
-| Dataset augmentation (MONAI) | RandFlip + RandRotate in `dataset.py` | None in dataloader |
 | Positional encoding | **3D RoPE** (row, col, slice) | **2D RoPE** (row, col only) |
-| Training slice filter | Slices **30–60** only | No filtering |
+| Training slice filter | Slices **30–60** only | IXI healthy (axial slices **128–188**), fastMRI normal (axial slices **0-10**) |
 | Batch size | 128 (both stages) | 192 (S1) / 158 (S2) |
 | num_workers | 8 | 12 |
-| Train/val split | Internal (10%) | Separate directories |
+| Data splits | `Train_Val_Test_Exact_DataSplits_LUND_PROBE.json` | `Train_validation_test_anomaly_splits_brain.json` |
 | File format | `.npy` | `.npz` (key `arr`) |
-| Rotation applied | At load time | At save time |
-| Patient-level slice range | 38–49 | All slices |
-| Evaluation | Patient-level AUC by category | Per-slice bounding-box TP/F1 + patient clamp-sum |
-| Annotation format | Filename-encoded category | External bounding-box CSV |
-| Fine-tuning CLI support | — | `--pretrained-stage1/2-ckpt` |
-| Render/export utility | Not needed as a separate documented step | `Render_patient_slices_from_csv.py` for CSV- or label-folder-driven `.h5` → PNG/NPZ slice generation |
-| LPIPS backflow fusion | — | Yes (55%/45% blending) |
-| Edge-to-center erosion | — | Yes |
+| Patient-level slice range (inference) | 38–49 | All slices withh annotations |
