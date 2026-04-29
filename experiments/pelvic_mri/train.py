@@ -1,157 +1,103 @@
-"""
-Train the anomaly detection model on Pelvic MRI data.
-
-Usage
------
-    python experiments/pelvic_mri/train.py
-    python experiments/pelvic_mri/train.py --config experiments/pelvic_mri/config.yaml
-    python experiments/pelvic_mri/train.py --epochs 200 --lr 5e-5
-"""
-
 import argparse
-import logging
 import os
-import random
-import sys
-from pathlib import Path
-
-import numpy as np
+import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
+from pytorch_lightning.loggers import CSVLogger, WandbLogger
 import torch
-import yaml
-from torch.utils.data import DataLoader, random_split
 
-# Ensure the project root is on the Python path
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
-
-from framework.datasets import MedicalImageDataset
-from framework.models import AnomalyAutoencoder
-from framework.trainers import AnomalyTrainer
-from framework.utils import plot_training_curves
+from dataset import SliceDataModule
+from model_stage1 import Stage1RVQVAE
+from model_stage2 import FactorizedMaskGIT
 
 
-# ──────────────────────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────────────────────
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train RVQ-VAE (Stage1) or Factorized MaskGIT (Stage2)")
+    parser.add_argument("--stage", choices=["stage1", "stage2"], required=False, help="Explicit stage selector")
+    parser.add_argument("--stage1", dest="stage1_flag", action="store_true", help="Shorthand for --stage stage1")
+    parser.add_argument("--stage2", dest="stage2_flag", action="store_true", help="Shorthand for --stage stage2")
+    parser.add_argument("--data-dir", default="/home/mluser1/Musti_Anomaly_Detection/Data/PreSliced")
+    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--num-workers", type=int, default=8)
+    parser.add_argument("--max-epochs", type=int, default=100)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--precision", default=32, type=int)
+    parser.add_argument("--stage1-ckpt", type=str, default="/home/mluser1/Musti_Anomaly_Detection/RQV-MaskGIT/lightningCheckpoints_Modified/Modified_stage1-epoch=094-val/loss=0.8587.ckpt", help="Checkpoint path for Stage1 (needed for Stage2 training)")
+    parser.add_argument("--log-dir", type=str, default="logs")
+    parser.add_argument("--wandb-project", type=str, default="RVQ-MaskGIT", help="Weights & Biases project name; set empty to disable")
+    parser.add_argument("--wandb-entity", type=str, default=None, help="Weights & Biases entity (team)")
+    parser.add_argument("--wandb-run-name", type=str, default="Stage2-Checkerboard-RQV-MaskGIT-256-patchsize-8-Modified", help="Run display name for Wandb")
+    parser.add_argument("--wandb-off", action="store_true", help="Disable Wandb logging even if project is set")
+    args = parser.parse_args()
 
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    # Resolve stage from shorthand flags if not explicitly provided
+    if args.stage is None:
+        if args.stage1_flag and args.stage2_flag:
+            parser.error("Specify only one of --stage1 or --stage2")
+        if args.stage1_flag:
+            args.stage = "stage1"
+        elif args.stage2_flag:
+            args.stage = "stage2"
+        else:
+            parser.error("--stage is required (or use --stage1 / --stage2 shorthand)")
+
+    return args
 
 
-def load_config(path: str) -> dict:
-    with open(path) as f:
-        return yaml.safe_load(f)
+def make_trainer(args):
+    callbacks = [
+        ModelCheckpoint(save_top_k=3, monitor="val/loss", mode="min", verbose=True,
+                        dirpath=os.path.join("/home/mluser1/Musti_Anomaly_Detection/RQV-MaskGIT", "lightningCheckpoints_Modified"),
+                        filename=f"Modified_Checkerboard_{args.stage}-{{epoch:03d}}-{{val/loss:.4f}}"),
+        LearningRateMonitor(logging_interval="epoch"),
+    ]
+    csv_logger = CSVLogger(args.log_dir, name=args.stage)
+    loggers = [csv_logger]
 
+    if args.wandb_project and not args.wandb_off:
+        wandb_logger = WandbLogger(
+            project=args.wandb_project,
+            entity=args.wandb_entity,
+            name=args.wandb_run_name,
+            save_dir=args.log_dir,
+            log_model=True,
+            config=vars(args),
+        )
+        loggers.append(wandb_logger)
 
-def build_loaders(cfg: dict):
-    """Build train and validation DataLoaders from config."""
-    data_cfg = cfg["data"]
-    full_dataset = MedicalImageDataset(
-        root=data_cfg["root"],
-        split="train",
-        grayscale=data_cfg.get("grayscale", True),
-        image_size=data_cfg.get("image_size", 128),
+    trainer = pl.Trainer(
+        max_epochs=args.max_epochs,
+        devices=[1],
+        accelerator="auto",
+        gradient_clip_val=1.0,
+        callbacks=callbacks,
+        logger=loggers,
+        precision=args.precision,
     )
-    n_train = int(len(full_dataset) * data_cfg.get("train_val_split", 0.9))
-    n_val = len(full_dataset) - n_train
-    train_set, val_set = random_split(
-        full_dataset,
-        [n_train, n_val],
-        generator=torch.Generator().manual_seed(cfg["experiment"]["seed"]),
-    )
-
-    train_loader = DataLoader(
-        train_set,
-        batch_size=cfg["training"]["batch_size"],
-        shuffle=True,
-        num_workers=data_cfg.get("num_workers", 4),
-        pin_memory=data_cfg.get("pin_memory", True),
-    )
-    val_loader = DataLoader(
-        val_set,
-        batch_size=cfg["training"]["batch_size"],
-        shuffle=False,
-        num_workers=data_cfg.get("num_workers", 4),
-        pin_memory=data_cfg.get("pin_memory", True),
-    )
-    return train_loader, val_loader
+    return trainer
 
 
-# ──────────────────────────────────────────────────────────────
-# Main
-# ──────────────────────────────────────────────────────────────
+def main():
+    args = parse_args()
+    torch.set_float32_matmul_precision("medium")
 
-def main(args):
-    # Load config and apply CLI overrides
-    cfg = load_config(args.config)
-    if args.epochs is not None:
-        cfg["training"]["num_epochs"] = args.epochs
-    if args.lr is not None:
-        cfg["training"]["learning_rate"] = args.lr
-
-    logging.basicConfig(
-        level=getattr(logging, cfg["output"].get("log_level", "INFO")),
-        format="%(asctime)s | %(levelname)s | %(message)s",
-    )
-    logger = logging.getLogger(__name__)
-
-    set_seed(cfg["experiment"]["seed"])
-    logger.info("Experiment: %s", cfg["experiment"]["name"])
-
-    # Data
-    train_loader, val_loader = build_loaders(cfg)
-    logger.info("Train batches: %d | Val batches: %d", len(train_loader), len(val_loader))
-
-    # Model
-    model_cfg = cfg["model"]
-    model = AnomalyAutoencoder(
-        in_channels=model_cfg.get("in_channels", 1),
-        latent_dim=model_cfg.get("latent_dim", 256),
-        base_channels=model_cfg.get("base_channels", 32),
-        use_skip=model_cfg.get("use_skip", True),
-    )
-    logger.info("Model parameters: %s", f"{sum(p.numel() for p in model.parameters()):,}")
-
-    # Trainer
-    train_cfg = cfg["training"]
-    trainer = AnomalyTrainer(
-        model=model,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        lr=train_cfg["learning_rate"],
-        num_epochs=train_cfg["num_epochs"],
-        checkpoint_dir=cfg["output"]["checkpoint_dir"],
-        device="cuda" if torch.cuda.is_available() else "cpu",
-        l1_weight=train_cfg.get("l1_weight", 1.0),
-        ssim_weight=train_cfg.get("ssim_weight", 1.0),
-        perceptual_weight=train_cfg.get("perceptual_weight", 0.1),
+    datamodule = SliceDataModule(
+        data_dir=args.data_dir,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
     )
 
-    # Resume from checkpoint if specified
-    if args.resume:
-        trainer.load_checkpoint(args.resume)
+    trainer = make_trainer(args)
 
-    # Train
-    history = trainer.train()
-
-    # Save loss curves
-    results_dir = Path(cfg["output"]["results_dir"])
-    results_dir.mkdir(parents=True, exist_ok=True)
-    plot_training_curves(history, save_path=str(results_dir / "training_curves.png"))
-    logger.info("Training complete. Results saved to %s", results_dir)
+    if args.stage == "stage1":
+        model = Stage1RVQVAE(lr=args.lr, embed_dim=256, codebook_size=192, commitment_cost=0.25)
+        trainer.fit(model, datamodule=datamodule)
+    else:
+        if args.stage1_ckpt is None or not os.path.exists(args.stage1_ckpt):
+            raise FileNotFoundError("Stage2 training requires a valid --stage1-ckpt path")
+        stage1 = Stage1RVQVAE.load_from_checkpoint(args.stage1_ckpt)
+        model = FactorizedMaskGIT(stage1=stage1, lr=args.lr)
+        trainer.fit(model, datamodule=datamodule)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train Pelvic MRI anomaly detection model")
-    parser.add_argument(
-        "--config",
-        default=str(Path(__file__).parent / "config.yaml"),
-        help="Path to YAML configuration file",
-    )
-    parser.add_argument("--epochs", type=int, default=None, help="Override number of epochs")
-    parser.add_argument("--lr", type=float, default=None, help="Override learning rate")
-    parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
-    main(parser.parse_args())
+    main()
