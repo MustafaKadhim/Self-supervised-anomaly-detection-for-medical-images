@@ -37,7 +37,7 @@ Full architecture documentation for each variant lives in its own README:
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
 | **Split method** | Single directory; 10% held out internally (`val_split=0.10`, `seed=42`) | Separate `--train-dir` and `--val-dir` (pre-split on disk) |
-| **Split manifest** | Optional our JSON (`Train_Val_Test_Exact_DataSplits_LUND_PROBE.json`) | Optional our JSON `Train_validation_test_anomaly_splits_brain.json` |
+| **Split manifest** | Optional our JSON (`Train_Val_Test_Exact_DataSplits_LUND_PROBE.json`) | Optional our JSON (`Train_validation_test_anomaly_splits_brain.json`) |
 
 ---
 
@@ -59,7 +59,7 @@ Full architecture documentation for each variant lives in its own README:
 
 ## 5. Stage 1 — Data Augmentation
 
-The most substantial adaptation between the two frameworks.
+The augmentation settings between the two frameworks during training.
 
 | Augmentation | Pelvic MRI | Brain MRI |
 |---|---|---|
@@ -72,9 +72,7 @@ The most substantial adaptation between the two frameworks.
 | **RandFlip** | — | horizontal, prob=0.50 |
 | **Location of augmentation** | Applied inside `training_step` | Applied inside `training_step` |
 
-Additionally, the pelvic version applies **MONAI `RandFlipD` (p=0.5) and `RandRotateD` (±5°, p=0.3)** inside `dataset.py` at the dataloader level for all training slices. These are separate from the Stage 1 in-model augmentations. The brain version does not apply any MONAI augmentation in the dataloader.
-
-**Rationale:** Brain MRI exhibits substantially higher inter-subject variability in intensity, contrast, and field-of-view alignment. Gaussian noise (p=0.50) simulates acquisition noise. Zoom and wider rotation prevent over-fitting to the relatively uniform IXI training distribution.
+**Rationale:** Brain MRI exhibits substantially higher inter-subject variability in intensity, contrast, and field-of-view alignment. Gaussian noise and intensity augmentations simulate protocol acquisition variations. Augmentations may prevent over-fitting.
 
 ---
 
