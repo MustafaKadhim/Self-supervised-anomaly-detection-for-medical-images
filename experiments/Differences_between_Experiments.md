@@ -129,9 +129,7 @@ The augmentation settings between the two frameworks during training.
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
 | **Primary evaluation unit** | Slice-level (aggregated to Patient-level) | Slice-level (represented Patient-level) |
-| **Ground truth format** | Category label in filename; no spatial annotation | Bounding-box CSV (`x, y, width, height, label, study_level, base_size`) |
-| **TP definition** | Patient correctly flagged as anomalous | Predicted mask covers ≥ 10% of GT bounding-box area (`tp_inside_ratio_threshold`) |
-| **FP ratio** | Not applicable at patient level | Predicted pixels outside healthy region / predicted pixels inside GT box |
+| **Ground truth format** | Category label in filename | Bounding-box CSV (`x, y, width, height, label, study_level, base_size`) |
 | **Metrics reported** | Patient-level ROC-AUC  | Patient-level ROC-AUC  |
 | **Edge-to-center erosion** | Not used | available if needed: `apply_edge_to_center_erosion`: stronger boundary erosion, weaker near image centre |
 
@@ -144,20 +142,21 @@ Synthetic and clinical categories encoded in filenames, parsed by substring rule
 
 | Category | Type |
 |----------|------|
-| RandomGhosting | Synthetic |
-| RandomNoise | Synthetic |
-| RandomSpike | Synthetic |
-| RandomMotion | Synthetic |
-| WholeImageGaussian | Synthetic |
-| Stor_T2_till_sCT | Synthetic (MRI-to-CT conversion) |
-| ClinicalVariations | Clinical |
+| Ghosting | Synthetic |
+| Noise | Synthetic |
+| Fourier k-space spikes | Synthetic |
+| Rigid Motion | Synthetic |
+| Blur | Synthetic |
+| Hip implants | Clinical |
+| Cropped field of view protocols | Clinical |
 | Spacer | Clinical (SpaceOAR hydrogel) |
-| Unknown | — |
+| Brachytherapy applicators | Clinical |
+| Healthy volunteer scans | Clinical |
 
 ### Brain MRI (FastMRI)
 
-**Global labels** (study-level, from `build_patient_Global_label_folders.py`):
-Motion artifact, Possible artifact, Colpocephaly, Extra-axial collection, Small vessel chronic white matter ischemic change.
+**Global labels** (study-level, no bounding-boxes, available in `build_patient_Global_label_folders.py`):
+Motion artifact, Possible artifact, Colpocephaly, and Extra-axial collection. In this study, we excluded ***Small vessel chronic white matter ischemic change*** cases.
 
 **Local labels** (per-slice, from `build_patient_Local_label_folders.py`):
 Edema, Enlarged ventricles, Craniotomy, Mass, Nonspecific lesion, Resection cavity, Intraventricular substance, Paranasal sinus opacification, Posttreatment change, Nonspecific white matter lesion, Encephalomalacia, Dural thickening, Absent septum pellucidum, Lacunar infarct, Likely cysts.
