@@ -36,8 +36,7 @@ Full architecture documentation for each variant lives in its own README:
 
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
-| **Split method** | Single directory; 10% held out internally (`val_split=0.10`, `seed=42`) | Separate `--train-dir` and `--val-dir` (pre-split on disk) |
-| **Split manifest** | Optional our JSON (`Train_Val_Test_Exact_DataSplits_LUND_PROBE.json`) | Optional our JSON (`Train_validation_test_anomaly_splits_brain.json`) |
+| **Our data splits ** | Optional our JSON (`Train_Val_Test_Exact_DataSplits_LUND_PROBE.json`) | Optional our JSON (`Train_validation_test_anomaly_splits_brain.json`) |
 
 ---
 
@@ -96,9 +95,8 @@ The augmentation settings between the two frameworks during training.
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
 | **Slice range filter** | Training batches restricted to axial slices **30-60** (`_filter_training_slices`) | IXI healthy (axial slices **128–188**), fastMRI normal (axial slices **0-10**) |
-| **Behaviour when batch fails filter** | Batch is skipped entirely | Not applicable |
 
-**Rationale:** Pelvic T2 slices 0–29 and 61+ capture non-pelvic anatomy (abdomen above, femur below) with very different appearance. Restricting to [30, 60] focuses learning on the prostate/bladder/rectum region. Brain slices 128–188 (selected during preprocessing) are all anatomically relevant and require no further filtering.
+**Rationale:** Pelvic T2 slices 0–29 and 61+ capture non-pelvic interesting anatomy (abdomen above, femur below) with very different appearance. Restricting to [30, 60] focuses learning on the prostate/bladder/rectum regions. IXI Brain slices 128–188 (selected during preprocessing) are all anatomically relevant and require no further filtering as anomalies in fastMRI+ T1 are located around these regions. 
 
 ---
 
@@ -114,7 +112,6 @@ The augmentation settings between the two frameworks during training.
 | **q_error_weight** | 0.10 | 0.10 |
 | **label_smoothing** | 0.05 | 0.05 |
 | **warmup_steps** | 2000 | 2000 |
-| **Fine-tuning warm-start** | Not supported | `--pretrained-stage2-ckpt` loads previous Stage 2 with `strict=False` |
 
 ---
 
