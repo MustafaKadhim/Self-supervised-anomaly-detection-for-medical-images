@@ -61,19 +61,18 @@ Final_Code_Phiro_Pelvic_MRI/
 | Optimiser | AdamW (β=(0.9, 0.95), weight_decay=1e-4) + cosine annealing LR over max_epochs |
 | Precision | float32 matmul set to "medium" via `torch.set_float32_matmul_precision` |
 
-**BiomedCLIP perceptual loss** — The frozen vision tower of
-`microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224` (or an open_clip equivalent)
+**BiomedCLIP perceptual loss** — The frozen vision encoder of
+`microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224` 
 extracts pooled features from both reconstructed and target images. Loss = 1 − cosine_similarity.
 Grayscale slices are replicated to 3 channels and resized to 224×224 with minmax normalisation before encoding.
-A lightweight L1 fallback (`PerceptualLossStub`) is used if BiomedCLIP is unavailable.
 
-**Quantisation error map** — The per-token squared L2 distance between pre- and post-quantisation token
+**Quantisation error map** — (Optional feature): The per-token squared L2 distance between pre- and post-quantisation token
 embeddings is reshaped to the 2D token grid (32×32 for patch_size=8) and upsampled to pixel resolution.
 This map forms the third component of the anomaly score during inference.
 
-**Validation visualisations** — At the end of every validation epoch, up to 4 samples from slices 40–48
-are visualised (input, reconstruction, Q1 and Q2 codebook index maps, PSNR) and saved to `RQC_ValExamples/`.
-An augmentation preview is saved once at the first training batch.
+**Validation visualisations** — At the end of every validation epoch, up to 4 samples from centeral slices 40–48
+are visualised (input, reconstruction, L1-and L2-codebook index maps, PSNR) and saved to `RQC_ValExamples/`.
+An augmentation preview is saved once at the first training batch for quality control that the input images are of expected quality.
 
 ### Stage 2 — `Factorized Transformer (Fact-biT)`
 
