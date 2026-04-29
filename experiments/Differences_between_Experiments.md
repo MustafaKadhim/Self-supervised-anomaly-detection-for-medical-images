@@ -128,14 +128,12 @@ The augmentation settings between the two frameworks during training.
 
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
-| **Primary evaluation unit** | Patient-level | Slice-level (aggregated to patient-level) |
+| **Primary evaluation unit** | Slice-level (aggregated to Patient-level) | Slice-level (represented Patient-level) |
 | **Ground truth format** | Category label in filename; no spatial annotation | Bounding-box CSV (`x, y, width, height, label, study_level, base_size`) |
 | **TP definition** | Patient correctly flagged as anomalous | Predicted mask covers ≥ 10% of GT bounding-box area (`tp_inside_ratio_threshold`) |
 | **FP ratio** | Not applicable at patient level | Predicted pixels outside healthy region / predicted pixels inside GT box |
-| **Metrics reported** | Patient-level AUC per anomaly category | Per-slice precision, F1, `inside_bbox_detection_ratio` + patient-level `clamped_pixel_sum` |
-| **Annotation coordinate modes** | — | `legacy`, `render_fastmri` (y-axis flipped), `mask_pipeline` (rasterise then resize) |
-| **LPIPS backflow fusion** | Not present | `build_final_lpips_binary_token_eval_mask`: fuses LPIPS (60th-percentile threshold) with token surprisal (55% LPIPS + 45% max of LPIPS/surprisal) |
-| **Edge-to-center erosion** | Not present | `apply_edge_to_center_erosion`: stronger boundary erosion, weaker near image centre |
+| **Metrics reported** | Patient-level ROC-AUC  | Patient-level ROC-AUC  |
+| **Edge-to-center erosion** | Not used | available if needed: `apply_edge_to_center_erosion`: stronger boundary erosion, weaker near image centre |
 
 ---
 
