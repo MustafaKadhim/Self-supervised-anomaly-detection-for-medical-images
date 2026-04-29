@@ -1,6 +1,6 @@
 # Framework Differences: Pelvic MRI vs. Brain MRI
 
-This document describes every design decision that differs between the two instantiations of the two-stage anomaly detection framework. Both frameworks share the same conceptual architecture — Stage 1 RVQ-VAE followed by Stage 2 Factorized MaskGIT — but are adapted to the imaging modality, dataset characteristics, and evaluation protocol of each domain.
+This document describes every design decision that differs between the two instantiations of the two-stage anomaly detection framework. Both frameworks share the same conceptual architecture — Stage 1 RVQ-VAE followed by Stage 2 Factorized transformer (Fact-biT) — but are adapted to the imaging modality, dataset characteristics, and evaluation protocol of each domain.
 
 Full architecture documentation for each variant lives in its own README:
 - Pelvic MRI: `Final_Code_Phiro_Pelvic_MRI/README.md`
