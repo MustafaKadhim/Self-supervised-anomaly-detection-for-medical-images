@@ -323,21 +323,21 @@ evaluation:
   # --- Anomaly categories ---
   # "all" uses all categories; list specific names to restrict
   focus_categories:
-    - "RandomGhosting"
-    - "RandomNoise"
-    - "RandomSpike"
-    - "RandomMotion"
-    - "WholeImageGaussian"
-    - "Stor_T2_till_sCT"
-    - "ClinicalVariations"
-    - "Unknown"
-    - "Spacer"
+    - "RandomGhosting" #Ghosting
+    - "RandomNoise" #Noise
+    - "RandomSpike" #Fourier k-space spikes
+    - "RandomMotion" #Rigid motion
+    - "WholeImageGaussian" #Blur
+    - "Hip implants" 
+    - "Cropped field of view protocols"
+    - "Brachytherapy applicators"
+    - "Spacer" #Hydrogel rectal spacer
 
   # --- Patient-level decision thresholds ---
   # A patient is anomalous if combined_score > anomaly_threshold
   anomaly_threshold:         450.0   # For clamped_pixel_sum
   binary_sum_threshold:      500.0   # For Binary_Sum_Heatmap total
-  combined_score_threshold:  400.0   # For token_surprisal_hot_px + Binary_Sum_Heatmap
+  combined_score_threshold:  400.0   # Our used metric for anomaly scores: **For token_surprisal_hot_px + Binary_Sum_Heatmap**
   lpips_in_rec_threshold:   2000.0   # For total_lpips_input_recon_sum_mask
   min_red_bars:                3     # Minimum flagged slices to classify patient as anomalous
 
