@@ -39,7 +39,7 @@ Final_Code_Phiro_Pelvic_MRI/
 ├── Simulated_anomalies_and_Clinical_dataset.py        # Convert DICOM to nifti and generate global synthetic anomalies. 
 ├── Train_Val_Test_Exact_DataSplits_LUND_PROBE.json    # Exact patient-level train/val/test splits for the pelvis experiments
 ├── Pelvis_experiments_requirements.txt                # Full needed Python packages 
-└── config_yaml.yaml                                   # Centralised configuration (all hyperparameters)
+└── config.yaml                                   # Centralised configuration (all hyperparameters)
 ```
 
 ---
