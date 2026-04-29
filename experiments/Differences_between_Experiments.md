@@ -14,7 +14,7 @@ Full architecture documentation for each variant lives in its own README:
 |---|---|---|
 | **Dataset** | LUND-PROBE and internal clinical cases | fastMRI (normal for training, validation and testing) and (fastMRI+ annotated anomaly) + IXI (healthy training) |
 | **MRI sequence** | T2-weighted | T1-weighted |
-| **Normal training subjects** | 384 patients (from 467 total); splits from `Train_Val_Test_Exact_DataSplits_LUND_PROBE.json` | IXI healthy (581 cases, axial slices 128–188), fastMRI normal (172 cases, 0-5 slices) `Train_validation_test_anomaly_splits_brain.json` |
+| **Normal training subjects** | 384 patients (from 467 total); splits from `Train_Val_Test_Exact_DataSplits_LUND_PROBE.json` | IXI healthy (581 cases, axial slices 128–188), fastMRI normal (172 cases, 0-10 slices) `Train_validation_test_anomaly_splits_brain.json` |
 | **Anomaly test subjects** | Same LUND-PROBE cohort (held-out patients) and clinical cases | fastMRI+ annotated T1 brain scans |
 
 ---
@@ -26,9 +26,7 @@ Full architecture documentation for each variant lives in its own README:
 | **Slice file format** | `.npy` (single float32 array) | `.npz` (compressed; array key: `arr`) |
 | **Preprocessing script** | `preslice_volumes.py` | `IXI_dataset_overview.py` for IXI training data; `Render_patient_slices_from_csv.py` for FastMRI `.h5` slice export / curation |
 | **Z-score normalisation** | Per volume: `(vol − μ) / σ`; σ clipped to ≥ 1e-8 | Per volume: `(vol − μ) / σ`; clipped to [−3, 3] |
-| **In-plane target size** | Resize to 320×320 (area) → CenterCrop to 256×256 (applied at dataloader via MONAI) | IXI: center-crop-or-pad to 256×256 at save time. FastMRI render/export: pad/crop to 320×320, then resize to 256×256 |
-| **Rotation / flip** | 90° CCW applied at **load time** inside `dataset.py` (`np.rot90(arr, k=-1)`) | IXI: 90° CCW applied at **save time** inside `IXI_dataset_overview.py` (`np.rot90(arr, k=1)`); FastMRI render/export: `np.flipud(...)` before saving |
-| **Slice axis** | Axis 2 of NIfTI volume | Axis 2 of canonical NIfTI volume (IXI); native slice axis from FastMRI `reconstruction_rss` for render/export |
+| **In-plane target size** | Resize to 320×320 (area) → CenterCrop to 256×256 | IXI: center-crop-or-pad to 256×256. fastMRI: pad/crop to 320×320, then resize to 256×256 |
 | **Naming convention** | `{patient_id}_slice_{idx:03d}.npy` | `{file_id}_slice_{idx:03d}.npz` |
 | **External cohort script** | `External_dataset.py` (names as `{category}_{case_folder}_{volume_name}_slice_{idx:03d}.npy`) | FastMRI export utility also supports PNG + NPZ writing from CSV or per-label folder structure |
 
@@ -39,8 +37,7 @@ Full architecture documentation for each variant lives in its own README:
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
 | **Split method** | Single directory; 10% held out internally (`val_split=0.10`, `seed=42`) | Separate `--train-dir` and `--val-dir` (pre-split on disk) |
-| **Split manifest** | Optional JSON (`Train_Val_Test_Exact_DataSplits_LUND_PROBE.json`) | Not applicable |
-| **Slice file filter** | Only files containing `_slice_` in the name are used | All `.npz` (or `.npy`) files in the directory are used |
+| **Split manifest** | Optional our JSON (`Train_Val_Test_Exact_DataSplits_LUND_PROBE.json`) | Optional our JSON `Train_validation_test_anomaly_splits_brain.json` |
 
 ---
 
@@ -49,7 +46,7 @@ Full architecture documentation for each variant lives in its own README:
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
 | **Codebook size** | **192** codes per quantizer level | **256** codes per quantizer level |
-| **Perceptual loss weight** | **0.9** (strong BiomedCLIP supervision) | **0.5** (moderate; brain domain less enriched in biomedical CLIP training data) |
+| **Perceptual loss weight** | **0.9** (strong BiomedCLIP supervision) | **0.5** (moderate BiomedCLIP supervision) |
 | **Learning rate** | **1e-4** | **2e-4** |
 | **AdamW betas** | (0.9, 0.95) | (0.9, 0.95) |
 | **embed_dim** | 256 | 256 |
