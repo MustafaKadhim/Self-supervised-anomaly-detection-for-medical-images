@@ -11,14 +11,15 @@ The framework is trained exclusively on healthy subjects and detects anomalies a
 
 **Stage 2 — Factorized MaskGIT (`Model_Stage_2.py`):** A bidirectional masked generative transformer learns the joint distribution over the Stage-1 token sequences. The model jointly predicts two codebook levels (structure L1 and texture L2) using factorized task conditioning and 3D Rotary Position Embeddings (RoPE) that encode row, column, and slice-axis positions.
 
-**Inference — Recursive-AutoMask V4 (`Inference_LUNDPROBE_final.py`):** At inference, the framework:
-1. "Heals" the input by regenerating tokens with deterministic checkerboard masks (ensemble),
+**Inference —  (`Inference_Pelvis_Experiments.py`):** 
+At inference, the framework:
+1. "Heals" the input by regenerating tokens with deterministic checkerboard masks,
 2. Computes an LPIPS perceptual difference map between input and healed image,
 3. Converts the map to Z-scores using population statistics from a calibration set of healthy volunteers,
-4. Iteratively refines the anomaly mask with targeted inpainting,
-5. Augments the final score with token surprisal (pseudo-PLL) for complementary evidence.
+4. Optional: Iteratively refines the anomaly mask with targeted inpainting if the user wants,
+5. Aggregats the final perceptual score with token surprisal (pseudo-PLL) score to achive the final anomaly score.
 
-**Evaluation — ROC curves (`ROC_Curves_Calculations.py`):** Patient-level ROC curves stratified by anomaly category (synthetic, clinical, spacer, etc.).
+**Evaluation — ROC curves (`ROC_Curves_Calculations.py`):** Patient-level ROC-curves stratified by anomaly category (synthetic, clinical, etc.).
 
 ---
 
@@ -26,18 +27,18 @@ The framework is trained exclusively on healthy subjects and detects anomalies a
 
 ```
 Final_Code_Phiro_Pelvic_MRI/
-├── model_stage1.py                                    # Stage 1: ViT-RVQ-VAE
-├── model_stage2.py                                    # Stage 2: Factorized MaskGIT
-├── train.py                                           # Training entry-point (both stages)
+├── model_Stage_1.py                                    # Stage 1: ViT-RVQ-VAE
+├── Model_Stage_2.py                                    # Stage 2: Factorized MaskGIT
+├── Framework_train.py                                 # Training entry-point (both stages)
 ├── dataset.py                                         # NpySliceDataset + SliceDataModule
 ├── preslice_volumes.py                                # Pre-slicing NIfTI volumes -> .npy
-├── Inference_LUNDPROBE_final.py                       # Full inference pipeline (Recursive-AutoMask V4)
+├── Inference_Pelvis_Experiments.py.py                 # Full inference pipeline (Recursive-AutoMask V4)
 ├── ROC_Curves_Calculations.py                         # ROC / AUC evaluation utilities
 ├── External_dataset.py                                # External cohort dataset loader
-├── inference_v3_support_CJG.py                        # Legacy inference helper (CJG cohort)
-├── inference_v4_extended_CJG.py                       # Extended inference (CJG cohort)
-├── Train_Val_Test_Exact_DataSplits_LUND_PROBE.json    # Exact patient-level train/val/test splits
-├── LUNDPROBE_requirements.txt                         # Full pinned Python environment
+├── Simulate_local_prostate_anomalies.py               # Simulate local anomalies influencing the prostate 
+├── Simulated_anomalies_and_Clinical_dataset.py        # Convert DICOM to nifti and generate global synthetic anomalies. 
+├── Train_Val_Test_Exact_DataSplits_LUND_PROBE.json    # Exact patient-level train/val/test splits for the pelvis experiments
+├── Pelvis_experiments_requirements.txt                # Full needed Python packages 
 └── config_yaml.yaml                                   # Centralised configuration (all hyperparameters)
 ```
 
