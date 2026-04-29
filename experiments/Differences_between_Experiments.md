@@ -155,7 +155,7 @@ Synthetic and clinical categories encoded in filenames, parsed by substring rule
 
 ### Brain MRI (FastMRI)
 
-**Global labels** (study-level, no bounding-boxes, available in `build_patient_Global_label_folders.py`):
+**Global labels** (study-level, no bounding boxes, available in `build_patient_Global_label_folders.py`):
 Motion artifact, Possible artifact, Colpocephaly, and Extra-axial collection. In this study, we excluded ***Small vessel chronic white matter ischemic change*** cases.
 
 **Local labels** (per-slice, from `build_patient_Local_label_folders.py`):
@@ -167,12 +167,12 @@ Edema, Enlarged ventricles, Craniotomy, Mass, Nonspecific lesion, Resection cavi
 
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
-| **Category encoding** | In filename prefix (e.g., `RandomGhosting_patient_slice_045.npy`); no external annotation needed | External CSV with per-slice bounding boxes |
-| **Normal slice collection** | Healthy-volunteer split; all slices treated as normal | `collect_normal_slices.py` — filters FastMRI annotation CSV for `study_level=yes`, normal label keyword, or unannotated slices |
+| **Category encoding** | In filename prefix (e.g., `RandomGhosting_patient_slice_045.npy`); no external annotation needed | External fastMRI+ CSV with per-slice radiologist annotated bounding boxes |
+| **Normal slice collection** | Healthy-volunteer split; all slices treated as normal | `collect_normal_slices.py` — filters fastMRI+ annotation CSV for `study_level=yes`, normal label keyword, or unannotated slices |
 | **Label organisation** | Not applicable (categories in filename) | `build_patient_Global_label_folders.py` and `build_patient_Local_label_folders.py` create per-label, per-patient folder trees with `patients.csv` and optional `slices.csv` |
-| **Rendered slice export utility** | Not required as a separate step | `Render_patient_slices_from_csv.py` reads FastMRI `.h5` `reconstruction_rss`, selects slices from CSV or label folders, optionally overlays annotation boxes, and writes PNG/NPZ outputs |
+| **Rendered slice export utility** | Not required as a separate step | `Render_patient_slices_from_csv.py` reads FastMRI `.h5` `reconstruction_rss`, selects slices from CSV or label folders, optionally overlays annotation boxes, and writes PNG/.npz outputs |
 
-In the brain pipeline, this extra rendering/export script matters because part of the documented preprocessing is not only IXI NIfTI → training `.npz`, but also FastMRI `.h5` → curated 2D slice exports for anomaly review and label-folder generation. That step includes series filtering (`AXT1`), per-volume z-scoring with clipping, vertical flipping, optional PNG box overlays, and final 256×256 export.
+In the brain pipeline, this extra rendering/export script matters because part of the documented preprocessing is not only IXI NIfTI → training `.npz`, but also normal FastMRI cases `.h5` → curated 2D slice exports for anomaly review and label-folder generation. That step includes series filtering (`AXT1`) from fastMRI dataset using annotations from fastMRI+, per-volume z-scoring with clipping, vertical flipping, optional PNG box overlays, and final 256×256 export as `.npz` format.
 
 ---
 
