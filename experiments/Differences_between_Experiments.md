@@ -14,7 +14,7 @@ Full architecture documentation for each variant lives in its own README:
 |---|---|---|
 | **Dataset** | LUND-PROBE and internal clinical cases | fastMRI (normal for training, validation and testing) and (fastMRI+ annotated anomaly) + IXI (healthy training) |
 | **MRI sequence** | T2-weighted | T1-weighted |
-| **Normal training subjects** | 384 patients (from 467 total); splits from `Train_Val_Test_Exact_DataSplits_LUND_PROBE.json` | IXI healthy (581 cases, axial slices 128–188), fastMRI normal (172 cases, 0-5 slices) |
+| **Normal training subjects** | 384 patients (from 467 total); splits from `Train_Val_Test_Exact_DataSplits_LUND_PROBE.json` | IXI healthy (581 cases, axial slices 128–188), fastMRI normal (172 cases, 0-5 slices) `Train_validation_test_anomaly_splits_brain.json` |
 | **Anomaly test subjects** | Same LUND-PROBE cohort (held-out patients) and clinical cases | fastMRI+ annotated T1 brain scans |
 
 ---
@@ -24,13 +24,13 @@ Full architecture documentation for each variant lives in its own README:
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
 | **Slice file format** | `.npy` (single float32 array) | `.npz` (compressed; array key: `arr`) |
-| **Preprocessing script** | `preslice_volumes.py` | `IXI_dataset_overview.py` |
+| **Preprocessing script** | `preslice_volumes.py` | `IXI_dataset_overview.py` for IXI training data; `Render_patient_slices_from_csv.py` for FastMRI `.h5` slice export / curation |
 | **Z-score normalisation** | Per volume: `(vol − μ) / σ`; σ clipped to ≥ 1e-8 | Per volume: `(vol − μ) / σ`; clipped to [−3, 3] |
-| **In-plane target size** | Resize to 320×320 (area) → CenterCrop to 256×256 (applied at dataloader via MONAI) | Center-crop-or-pad to 256×256 (applied at save time) |
-| **Rotation** | 90° CCW applied at **load time** inside `dataset.py` (`np.rot90(arr, k=-1)`) | 90° CCW applied at **save time** inside `IXI_dataset_overview.py` (`np.rot90(arr, k=1)`) |
-| **Slice axis** | Axis 2 of NIfTI volume | Axis 2 of canonical NIfTI volume |
+| **In-plane target size** | Resize to 320×320 (area) → CenterCrop to 256×256 (applied at dataloader via MONAI) | IXI: center-crop-or-pad to 256×256 at save time. FastMRI render/export: pad/crop to 320×320, then resize to 256×256 |
+| **Rotation / flip** | 90° CCW applied at **load time** inside `dataset.py` (`np.rot90(arr, k=-1)`) | IXI: 90° CCW applied at **save time** inside `IXI_dataset_overview.py` (`np.rot90(arr, k=1)`); FastMRI render/export: `np.flipud(...)` before saving |
+| **Slice axis** | Axis 2 of NIfTI volume | Axis 2 of canonical NIfTI volume (IXI); native slice axis from FastMRI `reconstruction_rss` for render/export |
 | **Naming convention** | `{patient_id}_slice_{idx:03d}.npy` | `{file_id}_slice_{idx:03d}.npz` |
-| **External cohort script** | `External_dataset.py` (names as `{category}_{case_folder}_{volume_name}_slice_{idx:03d}.npy`) | Not applicable |
+| **External cohort script** | `External_dataset.py` (names as `{category}_{case_folder}_{volume_name}_slice_{idx:03d}.npy`) | FastMRI export utility also supports PNG + NPZ writing from CSV or per-label folder structure |
 
 ---
 
@@ -192,6 +192,9 @@ Edema, Enlarged ventricles, Craniotomy, Mass, Nonspecific lesion, Resection cavi
 | **Category encoding** | In filename prefix (e.g., `RandomGhosting_patient_slice_045.npy`); no external annotation needed | External CSV with per-slice bounding boxes |
 | **Normal slice collection** | Healthy-volunteer split; all slices treated as normal | `collect_normal_slices.py` — filters FastMRI annotation CSV for `study_level=yes`, normal label keyword, or unannotated slices |
 | **Label organisation** | Not applicable (categories in filename) | `build_patient_Global_label_folders.py` and `build_patient_Local_label_folders.py` create per-label, per-patient folder trees with `patients.csv` and optional `slices.csv` |
+| **Rendered slice export utility** | Not required as a separate step | `Render_patient_slices_from_csv.py` reads FastMRI `.h5` `reconstruction_rss`, selects slices from CSV or label folders, optionally overlays annotation boxes, and writes PNG/NPZ outputs |
+
+In the brain pipeline, this extra rendering/export script matters because part of the documented preprocessing is not only IXI NIfTI → training `.npz`, but also FastMRI `.h5` → curated 2D slice exports for anomaly review and label-folder generation. That step includes series filtering (`AXT1`), per-volume z-scoring with clipping, vertical flipping, optional PNG box overlays, and final 256×256 export.
 
 ---
 
@@ -219,5 +222,6 @@ Edema, Enlarged ventricles, Craniotomy, Mass, Nonspecific lesion, Resection cavi
 | Evaluation | Patient-level AUC by category | Per-slice bounding-box TP/F1 + patient clamp-sum |
 | Annotation format | Filename-encoded category | External bounding-box CSV |
 | Fine-tuning CLI support | — | `--pretrained-stage1/2-ckpt` |
+| Render/export utility | Not needed as a separate documented step | `Render_patient_slices_from_csv.py` for CSV- or label-folder-driven `.h5` → PNG/NPZ slice generation |
 | LPIPS backflow fusion | — | Yes (55%/45% blending) |
 | Edge-to-center erosion | — | Yes |
