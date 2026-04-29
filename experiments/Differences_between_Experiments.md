@@ -14,7 +14,7 @@ Full architecture documentation for each variant lives in its own README:
 |---|---|---|
 | **Dataset** | LUND-PROBE and internal clinical cases | fastMRI (normal for training, validation and testing) and (fastMRI+ annotated anomaly) + IXI (healthy training) |
 | **MRI sequence** | T2-weighted | T1-weighted |
-| **Normal training subjects** | 384 patients (from 467 total); splits from `Train_Val_Test_Exact_DataSplits_LUND_PROBE.json` | IXI healthy (581 cases, axial slices 128–188), fastMRI normal (172 cases, 0-10 slices) `Train_validation_test_anomaly_splits_brain.json` |
+| **Normal training subjects** | 384 patients (from 467 total); splits from `Train_Val_Test_Exact_DataSplits_LUND_PROBE.json` | IXI healthy (581 cases), fastMRI normal (172 cases) and anomaly (255 cases) `Train_validation_test_anomaly_splits_brain.json` |
 | **Anomaly test subjects** | Same LUND-PROBE cohort (held-out patients) and clinical cases | fastMRI+ annotated T1 brain scans |
 
 ---
