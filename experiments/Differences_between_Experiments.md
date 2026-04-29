@@ -69,25 +69,14 @@ The augmentation settings between the two frameworks during training.
 | **RandAffine — rotation** | ±**5°**, prob=0.33 | ±**15°**, prob=0.33 |
 | **RandAffine — translation** | ±**5 px**, horizontal only | ±**15 px**, horizontal **and vertical** |
 | **RandAffine — zoom** | — | 0.80×–1.20× |
-| **RandFlip** | — | horizontal, prob=0.50 |
+| **RandFlip** | horizontal, prob=0.50 | horizontal, prob=0.50 |
 | **Location of augmentation** | Applied inside `training_step` | Applied inside `training_step` |
 
 **Rationale:** Brain MRI exhibits substantially higher inter-subject variability in intensity, contrast, and field-of-view alignment. Gaussian noise and intensity augmentations simulate protocol acquisition variations. Augmentations may prevent over-fitting.
 
 ---
 
-## 6. Stage 1 — Additional Differences
-
-| | Pelvic MRI | Brain MRI |
-|---|---|---|
-| **Augmentation sanity-check save** | Yes (saves 3 augmented versions) | Yes (saves 7 variants: original, intensity, contrast, noise, affine, flip, combined) |
-| **Perceptual loss fallback** | Raises `ImportError` if BiomedCLIP unavailable | `PerceptualLossStub` (L1 proxy) available for zero-dependency runs |
-| **Validation visualisation** | Fixed slice range 40–48; saves up to 4 samples | Random sample from first validation batch; saves up to 4 samples |
-| **Fine-tuning warm-start** | Not supported via CLI | `--pretrained-stage1-ckpt` loads previous Stage 1 with `strict=False` |
-
----
-
-## 7. Stage 2 — Positional Encoding (Key Architectural Difference)
+## 6. Stage 2 — Positional Encoding (Key Architectural Difference)
 
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
@@ -98,22 +87,22 @@ The augmentation settings between the two frameworks during training.
 | **max_slices** | 92 | — (not applicable) |
 | **slice_pos argument** | Actively used during training and inference | Accepted by API but silently ignored (backward compatibility) |
 
-**Rationale:** Pelvic MRI slices are scanned continuously along a single anatomical axis (inferior–superior), so the slice index carries strong positional semantics for anatomical structures. Brain MRI slices in the FastMRI/IXI dataset are processed slice-independently without volumetric context, making the slice dimension uninformative for the model.
+**Rationale:** Pelvic MRI slices are scanned continuously along a single anatomical axis (inferior–superior), so the slice index carries strong positional semantics for anatomical structures. Brain MRI slices in the FastMRI dataset are processed slice-independently without volumetric context, making the slice dimension uninformative/unconsistent for the model.
 
 ---
 
-## 8. Stage 2 — Training Slice Filtering
+## 7. Stage 2 — Training Slice Filtering
 
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
-| **Slice range filter** | Training batches restricted to slice indices **[30, 60]** (`_filter_training_slices`) | **No filtering** — all slices from the data directories are used |
+| **Slice range filter** | Training batches restricted to axial slices **30-60** (`_filter_training_slices`) | IXI healthy (axial slices **128–188**), fastMRI normal (axial slices **0-10**) |
 | **Behaviour when batch fails filter** | Batch is skipped entirely | Not applicable |
 
 **Rationale:** Pelvic T2 slices 0–29 and 61+ capture non-pelvic anatomy (abdomen above, femur below) with very different appearance. Restricting to [30, 60] focuses learning on the prostate/bladder/rectum region. Brain slices 128–188 (selected during preprocessing) are all anatomically relevant and require no further filtering.
 
 ---
 
-## 9. Stage 2 — Training Configuration
+## 8. Stage 2 — Training Configuration
 
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
@@ -129,7 +118,7 @@ The augmentation settings between the two frameworks during training.
 
 ---
 
-## 10. Inference — Patient-Level Scoring Range
+## 9. Inference — Patient-Level Scoring Range
 
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
@@ -138,7 +127,7 @@ The augmentation settings between the two frameworks during training.
 
 ---
 
-## 11. Inference — Evaluation Method and Metrics
+## 10. Inference — Evaluation Method and Metrics
 
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
@@ -153,7 +142,7 @@ The augmentation settings between the two frameworks during training.
 
 ---
 
-## 12. Anomaly Categories
+## 11. Anomaly Categories
 
 ### Pelvic MRI (LUND-PROBE)
 Synthetic and clinical categories encoded in filenames, parsed by substring rules:
@@ -180,7 +169,7 @@ Edema, Enlarged ventricles, Craniotomy, Mass, Nonspecific lesion, Resection cavi
 
 ---
 
-## 13. Data Annotation and Label-Building Tools
+## 12. Data Annotation and Label-Building Tools
 
 | | Pelvic MRI | Brain MRI |
 |---|---|---|
@@ -193,7 +182,7 @@ In the brain pipeline, this extra rendering/export script matters because part o
 
 ---
 
-## 14. Summary Comparison Table
+## 13. Summary Comparison Table
 
 | Aspect | Pelvic MRI (LUND-PROBE) | Brain MRI (FastMRI / IXI) |
 |--------|------------------------|--------------------------|
