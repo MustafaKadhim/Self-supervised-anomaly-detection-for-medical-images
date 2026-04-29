@@ -1,44 +1,349 @@
-# ──────────────────────────────────────────────────────
-# Pelvic MRI Anomaly Detection — Experiment Configuration
-# ──────────────────────────────────────────────────────
+# ============================================================================
+# config_yaml.yaml
+# Centralised configuration for the Two-Stage Anomaly Detection Framework
+# (Pelvic MRI version)
+#
+# Structure:
+#   data         → paths and pre-processing
+#   stage1       → RVQ-VAE architecture + training
+#   stage2       → Factorized transformer (Fact-biT) architecture + training
+#   training     → shared trainer / logging settings
+#   calibration  → healthy-volunteer calibration pass
+#   inference    → Recursive-AutoMask V4 settings
+#   evaluation   → ROC / scoring thresholds
+# ============================================================================
 
-experiment:
-  name: "pelvic_mri_anomaly_detection"
-  description: >
-    Self-supervised anomaly detection on Pelvic MRI scans.
-    The model is trained on healthy pelvic MRI slices and evaluated
-    on slices containing annotated lesions / abnormalities.
+
+# ----------------------------------------------------------------------------
+# DATA
+# ----------------------------------------------------------------------------
+data:
+  # Directory containing pre-sliced .npy files (output of preslice_volumes.py)
+  presliced_dir: "/home/mluser1/Musti_Anomaly_Detection/Data/PreSliced"
+
+  # Source NIfTI glob pattern used by preslice_volumes.py
+  source_nifti_glob: "/path/to/nifti/**/*.nii.gz"
+
+  # Output directory for pre-sliced .npy files
+  preslice_output_dir: "/home/mluser1/Musti_Anomaly_Detection/Data/PreSliced"
+
+  # Exact patient-level split manifest
+  split_json: "Train_Val_Test_Exact_DataSplits_LUND_PROBE.json"
+
+  # Fraction of training files used for online validation (when no split JSON is used)
+  val_split: 0.10
+
+  # Random seed for the train/val split
   seed: 42
 
-data:
-  root: "experiments/pelvic_mri/data"
-  image_size: 128        # Resize all images to (image_size × image_size)
-  grayscale: true
-  train_val_split: 0.9   # 90 % train, 10 % validation from the normal training set
-  num_workers: 4
-  pin_memory: true
+  # --- Preprocessing pipeline (MONAI, applied in dataset.py) ---
+  # Input slices are rotated 90° CCW in __getitem__ before MONAI transforms
+  resize_size: [320, 320]     # Resized (area interpolation) before crop
+  image_size:  [256, 256]     # Final crop size fed to the model
 
-model:
-  in_channels: 1
-  latent_dim: 256
-  base_channels: 32
-  use_skip: true
+  # --- DataLoader ---
+  batch_size:   128
+  num_workers:  8
+  pin_memory:   true
 
+  # Slice naming convention: {patient_id}_slice_{idx:03d}.npy
+  # Files not matching *_slice_*.npy are ignored by SliceDataModule
+  slice_axis: 2               # Third axis of the NIfTI volume used for slicing
+
+
+# ----------------------------------------------------------------------------
+# STAGE 1 — RVQ-VAE (Stage1RVQVAE in model_stage1.py)
+# ----------------------------------------------------------------------------
+stage1:
+  # --- Architecture ---
+  in_channels:    1           # Grayscale MRI
+  image_size:     256         # Must match data.image_size[0]
+  patch_size:     8           # 8 → 32×32 = 1 024 tokens; 16 → 16×16 = 256 tokens
+  embed_dim:      256         # Token embedding dimension (encoder & decoder)
+  encoder_depth:  8           # Number of ViT TransformerEncoder layers
+  encoder_heads:  8           # Number of attention heads
+
+  # --- Residual Vector Quantization ---
+  codebook_size:    192       # Number of codes per quantizer level
+  num_quantizers:   2         # Residual quantizer depth (L1 = structure, L2 = texture)
+  commitment_cost:  0.25      # VQ commitment loss weight (EMA target)
+  # Internal RVQ settings (vector_quantize_pytorch.ResidualVQ):
+  rvq_orthogonal_reg_weight:   0.10   # Forces diversity in codebook embeddings
+  rvq_orthogonal_reg_max_codes: 128   # Limits orthogonal reg computation for speed
+  rvq_threshold_ema_dead_code:  0.10  # Revive dead codes below this usage frequency
+  rvq_ema_decay:               0.85   # EMA decay for codebook update
+
+  # --- Training ---
+  lr:               1.0e-4
+  weight_decay:     1.0e-4    # AdamW weight decay
+  adam_betas:       [0.9, 0.95]
+
+  # --- Perceptual Loss (BiomedCLIP) ---
+  perceptual_weight: 0.9      # Weight of BiomedCLIP feature-cosine loss; 0 = disabled
+  # HuggingFace model name (transformers backend, preferred)
+  biomedclip_model_name: "microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224"
+  # open_clip fallback: set both to non-null to use open_clip directly
+  biomedclip_open_clip_model:      null
+  biomedclip_open_clip_pretrained: null
+  biomedclip_feature_layer:  "pooled"   # "pooled" or integer hidden-state index
+  biomedclip_normalize_mode: "minmax"   # "minmax" or "none"
+
+  # --- MONAI Augmentation (applied inside training_step) ---
+  use_augmentations: true
+  aug_intensity_factor: 0.10  # RandScaleIntensity factor
+  aug_intensity_prob:   0.33
+  aug_rotate_deg:       5.0   # ±degrees for RandAffine rotation
+  aug_translate_px:     5     # Horizontal-only translation (pixels)
+  aug_affine_prob:      0.33
+
+  # --- Visualisation during training ---
+  # Slices visualised during validation (by index)
+  vis_slice_min: 40
+  vis_slice_max: 48
+  vis_max_samples: 4          # Max samples per validation epoch
+
+
+# ------------------------------------------------------------------------------------
+# STAGE 2 — Factorized transformer (Fact-biT in model_stage2.py - inspired by MaskGIT)
+# ------------------------------------------------------------------------------------
+stage2:
+  # --- Architecture ---
+  embed_dim:  256             # Must match stage1.embed_dim
+  depth:      8               # Number of TransformerBlockSDPA layers
+  num_heads:  8               # Attention heads per block
+  # seq_len is derived automatically: (image_size // patch_size)²
+
+  # --- 3D Rotary Position Embeddings (RoPE) ---
+  rope_max_positions: 64      # Maximum spatial row/col positions (must be ≥ seq_hw = 32)
+  rope_max_slices:    92      # Maximum slice (z-axis) positions
+  rope_base:          25000.0 # Base frequency for RoPE (higher = lower frequencies)
+
+  # --- Token embeddings ---
+  # Codebook sizes are derived from the Stage 1 checkpoint automatically.
+  # Set manually only if loading Stage 2 without a Stage 1 checkpoint.
+  codebook_size_level1: 192   # Must match stage1.codebook_size
+  codebook_size_level2: 192   # Must match stage1.codebook_size
+
+  # --- Masking strategy ---
+  mask_ratio:       0.20      # Fixed mask ratio used at validation time
+  mask_ratio_min:   0.15      # Lower bound for β-distribution masking
+  mask_ratio_max:   0.75      # Upper bound for β-distribution masking
+  beta_alpha:       4.0       # β distribution α shape parameter
+  beta_beta:        4.0       # β distribution β shape parameter
+  # Block masking: 50% of training batches use block masking instead of random masking
+  block_mask_prob:  0.50
+
+  # --- Loss weights ---
+  l2_loss_weight:   0.25      # Cross-entropy weight for L2 (texture) token prediction
+  q_error_weight:   0.10      # Quantisation error weight in the anomaly score at inference
+
+  # --- Label smoothing ---
+  label_smoothing:  0.05      # Applied during training only (not validation)
+
+  # --- Training ---
+  lr:             1.0e-4
+  weight_decay:   0.01        # Applied to non-bias / non-norm / non-embed params
+  adam_betas:     [0.9, 0.98]
+  warmup_steps:   2000        # Linear LR warmup in global optimizer steps
+
+  # --- Slice filtering (training only) ---
+  # Only batches whose slices fall within [train_slice_min, train_slice_max] are used.
+  # Slices outside this range are dropped before Stage 1 encoding to focus on anatomically relevant regions and reduce training time.
+  train_slice_min: 30
+  train_slice_max: 60
+
+  # --- Anomaly score at inference ---
+  # learnable_anomaly_weights: if true, a softmax-normalised learned weight vector
+  # replaces the fixed (1, l2_loss_weight, q_error_weight) coefficients.
+  learnable_anomaly_weights: false
+
+  # --- Token frequency logging for monitoring ---
+  frequency_log_interval: 1000  # Log codebook utilisation every N batches
+
+  # --- Validation - for monitoring ---
+  # Centre-mask covers the inner 67%×67% of the token grid (anatomically relevant for pelvis)
+  center_mask_margin_frac: 0.167   # margin = H // 6 on each side
+
+
+# ----------------------------------------------------------------------------
+# TRAINING — shared trainer / logging settings (train.py)
+# ----------------------------------------------------------------------------
 training:
-  num_epochs: 150
-  batch_size: 16
-  learning_rate: 1.0e-4
-  weight_decay: 1.0e-5
-  # Loss weights
-  l1_weight: 1.0
-  ssim_weight: 1.0
-  perceptual_weight: 0.1
+  max_epochs: 100
+  precision:  32              # 32 = full float32; "bf16-mixed" also supported
+  gradient_clip_val: 1.0      # Gradient norm clipping
 
+  # GPU device index. Set to [0] or [0, 1] etc. for your setup.
+  devices: [1]
+  accelerator: "auto"
+
+  # --- Checkpoint ---
+  checkpoint_dir: "/home/mluser1/Musti_Anomaly_Detection/RQV-MaskGIT/lightningCheckpoints_Modified"
+  checkpoint_save_top_k: 3
+  checkpoint_monitor: "val/loss"
+  checkpoint_mode: "min"
+
+  # --- CSV Logger ---
+  log_dir: "logs"
+
+  # --- Weights & Biases ---
+  wandb_project:   "RVQ-MaskGIT" #called "RVQ-VAE" in stage 1 and "Fact-biT" in stage 2 for clarity
+  wandb_entity:    null        # Set to your W&B team/entity, or null for personal
+  wandb_run_name_stage1: "Stage1-RVQ-VAE" 
+  wandb_run_name_stage2: "Stage2-Factorized-MaskGIT"
+  wandb_log_model: true        # Upload checkpoints to W&B
+
+
+# ----------------------------------------------------------------------------
+# CALIBRATION — healthy volunteer calibration pass
+# (run_calibration in Inference_LUNDPROBE_final.py)
+# ----------------------------------------------------------------------------
+calibration:
+  # Output path for the .npz calibration file
+  output_path: "/path/to/calibration/zscore_calibration.npz"
+
+  # Data directory with healthy volunteer .npy slices
+  data_dir: "/path/to/healthy_slices"
+
+  # --- Healing parameters (must match inference settings) ---
+  heal_steps:       12
+  heal_temperature: 0.80
+  heal_patterns:    [0, 1]    # Checkerboard mask patterns (0/1 = pixel; 2/3 = 2×2; 4/5 = 4×4)
+
+  # --- TTA (Test-Time Augmentation) ---
+  use_tta: true               # Adds horizontal-flip healing branch
+
+  # --- Spatial smoothing ---
+  # Applied BEFORE computing μ/σ to capture anatomical region statistics
+  # rather than exact pixel locations. MUST match inference.smoothing_kernel.
+  smoothing_kernel: 15
+
+  # --- Per-slice statistics ---
+  use_per_slice_stats: true   # Compute μ/σ per slice index (≥3 samples required)
+
+  # --- Heatmap aggregation ---
+  heatmap_aggregation: "mean" # "mean" | "max" | "logsumexp" | "geomean"
+  logsumexp_temp:      1.0    # Temperature for logsumexp aggregation
+
+  # --- Debug / visualisation ---
+  debug: true
+  save_aggregation_figures: true
+  aggregation_figures_max_samples: 3
+
+
+# ----------------------------------------------------------------------------
+# INFERENCE — Recursive-AutoMask V4 with Z-Score Normalization
+# (recursive_automask_v4_zscore in Inference_LUNDPROBE_final.py)
+# ----------------------------------------------------------------------------
+inference:
+  # --- Model checkpoints ---
+  stage1_ckpt: "/path/to/stage1.ckpt"
+  stage2_ckpt: "/path/to/stage2.ckpt"
+
+  # --- Data ---
+  data_dir:   "/path/to/test_slices"
+  output_dir: "/path/to/inference_results"
+
+  # --- Calibration map (required for Z-score mode) ---
+  calibration_map: "/path/to/zscore_calibration.npz"
+
+  # --- Z-score thresholding (Iteration 0) ---
+  z_threshold:     2.0    # Anomaly if Z > this value (std deviations above healthy mean)
+  z_epsilon:       0.01   # Numerical stability: Z = (x - μ) / (σ + ε)
+  smoothing_kernel: 15    # Must match calibration.smoothing_kernel
+
+  # --- Recursive iterations ---
+  num_iterations:          3   # Total iterations (1 Z-score + 2 refinement)
+  inter_iteration_dilation: 5  # Dilation kernel size between iterations
+
+  # --- Ensemble healing ---
+  heal_steps:       12
+  heal_temperature: 0.80
+  heal_patterns:    [0, 1]   # Checkerboard mask patterns applied in ensemble
+
+  # --- TTA ---
+  use_tta: true              # Horizontal-flip TTA branch during healing
+
+  # --- Heatmap aggregation ---
+  heatmap_aggregation: "mean"
+  logsumexp_temp:      1.0
+
+  # --- Binary mask generation (fallback: percentile thresholding for iterations 1+) ---
+  mask_threshold_percentile: 95.0   # Percentile threshold for LPIPS heatmap
+  mask_dilation:              3     # Morphological dilation kernel after thresholding
+  mask_min_region:            5     # Minimum connected-component size (pixels) to keep
+
+  # --- Artifact guard (sharpness) ---
+  blur_threshold: 0.002   # Laplacian variance below this → motion artifact flag
+
+  # --- Targeted inpainting (inside each iteration) ---
+  inpaint_steps:       12
+  inpaint_temperature: 0.90
+
+  # --- Token-to-pixel mask mapping ---
+  # Converts pixel-space anomaly mask to token-space mask for targeted inpainting
+  token_mask_mode:           "max"   # "max" | "avg" | "topk"
+  token_mask_avg_threshold:   0.50   # Threshold for "avg" mode
+  token_mask_topk_ratio:      0.10   # Fraction of tokens masked in "topk" mode
+
+  # --- Token surprisal (pseudo-PLL) ---
+  compute_token_surprisal:     true
+  token_surprisal_samples:     50      # Number of random-masking Monte Carlo passes
+  token_surprisal_mask_ratio:  0.15    # Fraction of L1 tokens masked per pass
+  token_surprisal_clamp:       5.0     # NLL values below clamp are zeroed (noise filter)
+
+  # --- Scalar score thresholds (used for binary visualisation in output figures) ---
+  binary_mask_threshold:         0.10   # LPIPS value above which a pixel is flagged as anomalous
+  first_heatmap_sum_thresh:    300.0    # Threshold for "clamped_sum_first_heatmap" summary plot
+  vis_mask_threshold_percentile: 97.0   # Percentile for the visualisation binary mask overlay
+  vis_clamp_threshold:            0.60  # LPIPS clamp value in visualisation
+
+  # --- Scoring: slices used for patient-level aggregation ---
+  patient_score_slice_min: 38
+  patient_score_slice_max: 49
+
+  # --- Debug / visualisation ---
+  debug: false
+  save_per_slice_figures: true
+  figure_dpi: 150
+
+
+# ----------------------------------------------------------------------------
+# EVALUATION — ROC curves and patient-level scoring
+# (ROC_Curves_Calculations.py)
+# ----------------------------------------------------------------------------
 evaluation:
-  anomaly_score_reduction: "percentile95"   # mean | max | percentile95
-  batch_size: 32
+  # List of result JSON files to merge for ROC analysis
+  roc_input_paths:
+    - "/path/to/Inference_Results_A/results_v4_zscore.json"
+    - "/path/to/Inference_Results_B/results_v4_zscore.json"
 
-output:
-  checkpoint_dir: "experiments/pelvic_mri/checkpoints"
-  results_dir: "experiments/pelvic_mri/results"
-  log_level: "INFO"
+  output_dir: "/path/to/roc_figures"
+
+  # --- Anomaly categories ---
+  # "all" uses all categories; list specific names to restrict
+  focus_categories:
+    - "RandomGhosting"
+    - "RandomNoise"
+    - "RandomSpike"
+    - "RandomMotion"
+    - "WholeImageGaussian"
+    - "Stor_T2_till_sCT"
+    - "ClinicalVariations"
+    - "Unknown"
+    - "Spacer"
+
+  # --- Patient-level decision thresholds ---
+  # A patient is anomalous if combined_score > anomaly_threshold
+  anomaly_threshold:         450.0   # For clamped_pixel_sum
+  binary_sum_threshold:      500.0   # For Binary_Sum_Heatmap total
+  combined_score_threshold:  400.0   # For token_surprisal_hot_px + Binary_Sum_Heatmap
+  lpips_in_rec_threshold:   2000.0   # For total_lpips_input_recon_sum_mask
+  min_red_bars:                3     # Minimum flagged slices to classify patient as anomalous
+
+  # Slice range for patient-level aggregation (matched to inference settings)
+  patient_score_slice_min: 38
+  patient_score_slice_max: 49
+
+  # Top-N patients to display in bar plots (null = all)
+  plot_top_n: null
