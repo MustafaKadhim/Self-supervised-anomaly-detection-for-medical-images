@@ -194,4 +194,4 @@ In the brain pipeline, this extra rendering/export script matters because part o
 | num_workers | 8 | 12 |
 | Data splits | `Train_Val_Test_Exact_DataSplits_LUND_PROBE.json` | `Train_validation_test_anomaly_splits_brain.json` |
 | File format | `.npy` | `.npz` (key `arr`) |
-| Patient-level slice range (inference) | 38–49 | All slices withh annotations |
+| Patient-level slice range (inference) | 38–49 | All slices with annotations |
