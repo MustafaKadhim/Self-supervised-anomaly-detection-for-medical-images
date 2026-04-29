@@ -6,8 +6,8 @@ from pytorch_lightning.loggers import CSVLogger, WandbLogger
 import torch
 
 from dataset import SliceDataModule
-from model_stage1 import Stage1RVQVAE
-from model_stage2 import FactorizedMaskGIT
+from Model_stage_1 import Stage1RVQVAE
+from Model_stage_2 import FactorizedMaskGIT
 
 
 def parse_args():
