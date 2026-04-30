@@ -1,3 +1,5 @@
+#### code for Stage 1 of model framework #####
+
 import math
 import os
 import random
