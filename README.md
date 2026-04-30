@@ -16,7 +16,6 @@
   <br>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22863a?style=flat-square" alt="License"></a>
   <a href="https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/pulls"><img src="https://img.shields.io/badge/PRs-Welcome-1f6feb?style=flat-square" alt="PRs"></a>
-  <img src="https://img.shields.io/github/stars/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images?style=flat-square&color=yellow" alt="Stars">
 </p>
 
 <div align="center">
