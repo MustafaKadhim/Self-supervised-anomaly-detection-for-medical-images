@@ -4,14 +4,17 @@
 <p align="center">
   <img src="https://readme-typing-svg.demolab.com?font=Inter&weight=600&size=28&duration=3000&pause=1000&color=58A6FF&center=true&vCenter=true&width=600&lines=Self-Supervised+Anomaly+Detection;Medical+Image+Analysis+Framework;Train+on+Healthy+Data+Only" alt="Typing SVG" />
 </p>
-# Self-Supervised Anomaly Detection for Medical Images
 
-[![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org)
-[![MONAI](https://img.shields.io/badge/MONAI-69D3A7?style=for-the-badge&logo=MONAI&logoColor=white)](https://project-monai.github.io/)
-[![CUDA](https://img.shields.io/badge/CUDA-76B900?style=for-the-badge&logo=nvidia&logoColor=fff)](https://project-monai.github.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-22863a?style=for-the-badge)](LICENSE)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-1f6feb?style=for-the-badge)](https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/pulls)
+<p align="center">
+  <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.8+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python"></a>
+  <a href="https://pytorch.org"><img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=flat-square&logo=pytorch&logoColor=white" alt="PyTorch"></a>
+  <a href="https://project-monai.github.io/"><img src="https://img.shields.io/badge/MONAI-0.9+-69D3A7?style=flat-square&logo=MONAI&logoColor=white" alt="MONAI"></a>
+  <a href="#"><img src="https://img.shields.io/badge/CUDA-11.8+-76B900?style=flat-square&logo=nvidia&logoColor=white" alt="CUDA"></a>
+  <br>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22863a?style=flat-square" alt="License"></a>
+  <a href="https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/pulls"><img src="https://img.shields.io/badge/PRs-Welcome-1f6feb?style=flat-square" alt="PRs"></a>
+  <img src="https://img.shields.io/github/stars/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images?style=flat-square&color=yellow" alt="Stars">
+</p>
 
 *A research-ready framework for detecting anomalies in medical images, exclusively using normal training samples.*
 
