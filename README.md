@@ -299,6 +299,5 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 
 Made with ❤️ for the medical imaging research community
 
-⭐ Star this repo if you find it useful!
 
 </div>
