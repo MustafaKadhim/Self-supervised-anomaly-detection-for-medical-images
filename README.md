@@ -21,8 +21,6 @@
 
 <div align="center">
 
-Built with ❤️ for the medical imaging research community.
-
 <p>
   <a href="https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/stargazers">⭐ Star this repo</a> &nbsp;•&nbsp;
   <a href="https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/pulls">🤝 Contribute</a>
