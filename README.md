@@ -16,19 +16,40 @@
   <img src="https://img.shields.io/github/stars/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images?style=flat-square&color=yellow" alt="Stars">
 </p>
 
+
 *A research-ready framework for detecting anomalies in medical images, exclusively using normal training samples.*
 
 [🚀 Quickstart](#-quickstart) · [🔖 Citation](#-citation) · [🏗 Framework](#-framework) · [🧪 Experiments](#-experiments) · [📊 Results](#-results) · [📁 Repository Structure](#-repository-structure)
 
+
+## 🌟 Why This Framework?
+
+<table>
+  <tr>
+    <td width="50%">
+      <h3>✅ Normal-based Training</h3>
+      <p>Trains <b>exclusively on normal/healthy images</b> — zero anomalous labels required. Perfect for clinical settings where pathology annotations are scarce.</p>
+    </td>
+    <td width="50%">
+      <h3>🧩 Plug & Play Architecture</h3>
+      <p>Fully customizable tokenizers and transformers ready to adapt to new modalities and datasets.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <h3>📈 Reproducible Benchmarks</h3>
+      <p>Two complete experiments (Pelvic & Brain MRI) with configs, training scripts, and evaluation pipelines ready to run.</p>
+    </td>
+    <td width="50%">
+      <h3>🏥 Validated on Public Data</h3>
+      <p>Tested on <a href="https://datahub.aida.scilifelab.se/10.23698/aida/lund-probe">LUND-PROBE</a>, <a href="https://brain-development.org/ixi-dataset/">IXI</a>, <a href="https://fastmri.med.nyu.edu/">fastMRI</a>, and <a href="https://github.com/microsoft/fastmri-plus">fastMRI+</a>.</p>
+    </td>
+  </tr>
+</table>
+
+
 </div>
 
----
-## 🌟 Highlights
-
-- 🔸 **No anomalous labels required:** Trains exclusively on healthy images using self-supervised reconstruction and token-distribution learning.
-- 🔸 **Plug-and-play framework:** Fully customizable and adaptable to different medical imaging tasks.
-- 🔸 **Two evaluation experiments:** Developed and evaluated using publicly available pelvic and brain MRI datasets, with scripts provided to support reproducibility.
-- 🔸 **Public datasets:** Experiments were performed using [**LUND-PROBE**](https://datahub.aida.scilifelab.se/10.23698/aida/lund-probe) and an internal clinical set for pelvic MRI, and [**IXI**](https://brain-development.org/ixi-dataset/), [**fastMRI**](https://fastmri.med.nyu.edu/), and [**fastMRI+**](https://github.com/microsoft/fastmri-plus) for brain MRI experiments and pathology annotations.
 
 ---
 
@@ -53,18 +74,23 @@ The core idea is fun & simple: train an autoencoder to perfectly reconstruct **h
 <img src="figures/Figure 1. Framework overview (10).png" alt="Framework Architecture" width="600"/>
 </div>
 
+
 > **Figure caption:** * To be added later!.*
 
 ---
+
 ## 🚀 Quickstart
 
-### Installation
-
+### 1. Installation
 ```bash
+# Clone repository
 git clone https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images.git
 cd Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images
+
+# Install in editable mode
 pip install -e .
 ```
+
 
 ### Minimal Example
 
@@ -85,6 +111,8 @@ print(out["latent"].shape)                # (1, 256)
 ```
 
 ---
+
+
 
 ## 🧪 Experiments
 
@@ -147,14 +175,18 @@ python experiments/brain_mri/evaluate.py \
 
 ---
 
-## 📊 Results
+## 📊 Benchmark Results
 
-> Results will be populated after running the experiments.
+> Results will be populated after running experiments. Submit a PR if you reproduce these benchmarks!
 
-| Experiment | AUROC | AUPRC | FPR @ 95 % TPR |
-|-----------|:-----:|:-----:|:--------------:|
-| Pelvic MRI | — | — | — |
-| Brain MRI  | — | — | — |
+| Experiment | AUROC ↑ | AUPRC ↑ | FPR @ 95% TPR ↓ | Status |
+|:---|:---:|:---:|:---:|:---:|
+| **Pelvic MRI** | — | — | — | 🔄 Pending |
+| **Brain MRI**  | — | — | — | 🔄 Pending |
+
+<p align="center">
+  <sub>↑ Higher is better &nbsp;•&nbsp; ↓ Lower is better</sub>
+</p>
 
 ---
 
