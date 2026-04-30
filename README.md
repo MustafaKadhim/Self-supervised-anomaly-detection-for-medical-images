@@ -1,3 +1,6 @@
+
+
+
 <div align="center">
 
 <img src="figures/Anomaly_detection_official_logo_noBg.png" alt="Anomaly Detection Logo" width="400" class="center"/>
@@ -15,6 +18,35 @@
   <a href="https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/pulls"><img src="https://img.shields.io/badge/PRs-Welcome-1f6feb?style=flat-square" alt="PRs"></a>
   <img src="https://img.shields.io/github/stars/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images?style=flat-square&color=yellow" alt="Stars">
 </p>
+
+<div align="center">
+
+### 🙏 Acknowledgments
+
+Built with ❤️ for the medical imaging research community.
+
+<p>
+  <a href="https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/stargazers">⭐ Star this repo</a> &nbsp;•&nbsp;
+  <a href="https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/issues">🐛 Report Issues</a> &nbsp;•&nbsp;
+  <a href="https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/pulls">🤝 Contribute</a>
+</p>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/platane/snk/output/github-contribution-grid-snake-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/platane/snk/output/github-contribution-grid-snake.svg">
+  <img alt="github contribution grid snake animation" src="https://raw.githubusercontent.com/platane/snk/output/github-contribution-grid-snake.svg">
+</picture>
+
+</div>
+
+
+
+
+
+
+
+
+
 
 
 *A research-ready framework for detecting anomalies in medical images, exclusively using normal training samples.*
@@ -255,6 +287,10 @@ training:
 evaluation:
   anomaly_score_reduction: "percentile95"  # mean | max | percentile95
 ```
+---
+
+
+
 
 ---
 ---
