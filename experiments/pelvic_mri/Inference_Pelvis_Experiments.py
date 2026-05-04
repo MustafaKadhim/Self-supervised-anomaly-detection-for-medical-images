@@ -1,5 +1,5 @@
 """
-Recursive-AutoMask V4 with Population-Based Z-Score Normalization
+Inference script for pelvis experiments
 ===================================================================
 
 Key Innovation:
@@ -15,7 +15,6 @@ Two Modes:
 1. Calibration Mode (--calibration-mode): Process healthy volunteers, save μ/σ maps
 2. Inference Mode (--calibration-map): Load calibration, apply Z-score normalization
 
-Author: Recursive-AutoMask V4 with Z-Score Calibration
 """
 
 import argparse
