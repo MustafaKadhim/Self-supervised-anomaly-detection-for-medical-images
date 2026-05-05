@@ -10,10 +10,8 @@ The framework consists of two sequentially trained stages:
 
 | Stage | Model | Purpose |
 |-------|-------|---------|
-| **Stage 1** | RVQ-VAE (ViT encoder + PixelShuffle decoder) | Learn a discrete codebook of healthy brain appearance |
-| **Stage 2** | Factorized MaskGIT (bidirectional masked transformer) | Learn joint token distributions; estimate per-token surprise at inference |
-
-At inference, the **Recursive-AutoMask V4** pipeline applies ensemble healing, LPIPS-based perceptual comparison, Z-score calibration against a healthy-volunteer population, and targeted inpainting over multiple iterations. Anomaly scoring also incorporates token surprisal (pseudo-PLL) computed independently of the healing branch.
+| **Stage 1** | RVQ-VAE (ViT encoder + PixelShuffle decoder) | Learn a tokens of healthy brain appearance |
+| **Stage 2** | Factorized MaskGIT (bidirectional masked transformer) | Learn token distributions; estimate per-token surprise at inference |
 
 ---
 
@@ -21,26 +19,17 @@ At inference, the **Recursive-AutoMask V4** pipeline applies ensemble healing, L
 
 ```
 Final_Code_Phiro_Brain_MRI/
-├── FastMRI_model_stage1.py                              # Stage 1: RVQ-VAE
-├── FastMRI_model_stage2.py                              # Stage 2: Factorized MaskGIT
-├── FastMRI_train.py                                     # Training entry-point
-├── Inference_FastMRI_SOTA_5p_Rec_Heal_5p0_automatic_final.py  # Inference pipeline
-├── Inference_heatmaps_ideas_generator.py                # Colormap visualisation utility
-├── fastMRI_ROC_Curve_Calculations.py                    # Patient-level ROC / detection metrics
-├── IXI_dataset_overview.py                              # IXI NIfTI → .npz pre-processing
-├── collect_normal_slices.py                             # Filter normal slices from annotation CSVs
-├── build_patient_Global_label_folders.py                # Organise global-label anomaly folders
-├── build_patient_Local_label_folders.py                 # Organise per-slice local-label anomaly folders
-├── Render_patient_slices_from_csv.py                    # Render/export FastMRI slices from CSV or label folders
-└── fastMRI_brain_config.yaml                            # Centralised configuration (this repo)
-```
-
-Training data (not included):
-```
-FastMRI_Sample_Work/
-├── Training_samples_FastMRI_IXI/     # Healthy .npz slices for training (from IXI_dataset_overview.py)
-├── Validation_samples_FastMRI/       # Healthy .npz slices for validation
-└── FastMRI_IXI_Augmented_lightningCheckpoints/  # Checkpoint output directory
+├── FastMRI_model_stage1.py                    # Stage 1: RVQ-VAE
+├── FastMRI_model_stage2.py                    # Stage 2: Fact-biT
+├── Train_frameworks.py                        # Training of both stages
+├── FastMRI_Inference.py                       # Detailed inference and visualization pipeline
+├── Heatmaps_ideas_generator.py                # Colormap visualisation utility
+├── FastMRI_ROC_Curve_Calculations.py          # Patient-level ROC analysis
+├── IXI_dataset_overview_collection.py         # IXI NIfTI → .npz pre-processing
+├── collect_normal_slices.py                   # Filter normal slices from annotation CSVs
+├── Render_patient_slices_from_csv.py          # Render/export slices from CSV or label folders
+├── dataset.py                                 # needed utils
+└── config.yaml.yaml                           # Centralised configuration (this repo)
 ```
 
 ---
@@ -133,10 +122,10 @@ BiomedCLIP is loaded via `transformers` (`CLIPVisionModel`) with an automatic fa
 
 ### Training data: IXI dataset (healthy T1 brain volumes)
 
-Use `IXI_dataset_overview.py` to convert NIfTI volumes to `.npz` slices:
+Use `IXI_dataset_overview_collection.py` to convert NIfTI volumes to `.npz` slices:
 
 ```bash
-python IXI_dataset_overview.py \
+python IXI_dataset_overview_collection.py \
     --input-dir /path/to/IXI-T1/ \
     --output-npy-dir /path/to/Training_samples_FastMRI_IXI \
     --training-ready \
@@ -216,7 +205,7 @@ python Render_patient_slices_from_csv.py \
     --annotation-csv /path/to/Annotated_fastMRI_Brains_Detailed.csv
 ```
 
-This rendering/export preprocessing is important because it differs slightly from `IXI_dataset_overview.py`: IXI training slices are written directly from NIfTI volumes, whereas FastMRI slices for anomaly review are generated from `.h5` reconstructions, normalised per volume, flipped vertically for display/orientation consistency, and then resized to the final 256×256 saved representation.
+This rendering/export preprocessing is important because it differs slightly from `IXI_dataset_overview_collection.py`: IXI training slices are written directly from NIfTI volumes, whereas FastMRI slices for anomaly review are generated from `.h5` reconstructions, normalised per volume, flipped vertically for display/orientation consistency, and then resized to the final 256×256 saved representation.
 
 
 ### Building anomaly label folders
@@ -262,7 +251,7 @@ The `category` field in the JSON is set to the value passed via `--category` (or
 ### Stage 1
 
 ```bash
-python FastMRI_train.py --stage1 \
+python Train_frameworks.py --stage1 \
     --train-dir /path/to/Training_samples_FastMRI_IXI \
     --val-dir   /path/to/Validation_samples_FastMRI \
     --file-ext .npz \
@@ -290,7 +279,7 @@ Checkpoints saved to `FastMRI_IXI_Augmented_lightningCheckpoints/` as `FastMRI_s
 
 **Fine-tuning from an existing Stage 1 checkpoint** (e.g. LUND-PROBE → FastMRI transfer):
 ```bash
-python FastMRI_train.py --stage1 \
+python Train_frameworks.py --stage1 \
     --pretrained-stage1-ckpt /path/to/previous_stage1.ckpt \
     [... other args ...]
 ```
@@ -299,7 +288,7 @@ Loaded with `strict=False`; augmentations are disabled during fine-tuning (`use_
 ### Stage 2
 
 ```bash
-python FastMRI_train.py --stage2 \
+python Train_frameworks.py --stage2 \
     --train-dir /path/to/Training_samples_FastMRI_IXI \
     --val-dir   /path/to/Validation_samples_FastMRI \
     --file-ext .npz \
@@ -331,7 +320,7 @@ Stage 1 is loaded from `--stage1-ckpt`, frozen, and set to `eval()`. Stage 2 wei
 ### WandB logging
 
 ```bash
-python FastMRI_train.py --stage2 [args] \
+python Train_frameworks.py --stage2 [args] \
     --wandb-project RVQ-MaskGIT-FastMRI-IXI \
     --wandb-run-name "Stage2-Augmented-FastMRI-IXI"
 # To disable WandB:
@@ -344,7 +333,7 @@ python FastMRI_train.py --stage2 [args] \
 
 ## Inference Pipeline: Recursive-AutoMask V4
 
-The main inference script is `Inference_FastMRI_SOTA_5p_Rec_Heal_5p0_automatic_final.py`.
+The main inference script is `FastMRI_Inference.py`.
 
 ### Step 1 — Model loading
 
@@ -357,7 +346,7 @@ stage1, stage2 = load_models(stage1_ckpt, stage2_ckpt, device)
 ### Step 2 — Calibration (healthy volunteers)
 
 ```bash
-python Inference_FastMRI_SOTA_5p_Rec_Heal_5p0_automatic_final.py \
+python FastMRI_Inference.py \
     --calibration-mode \
     --stage1-ckpt /path/to/stage1.ckpt \
     --stage2-ckpt /path/to/stage2.ckpt \
@@ -379,7 +368,7 @@ Per healthy slice:
 ### Step 3 — Z-score inference
 
 ```bash
-python Inference_FastMRI_SOTA_5p_Rec_Heal_5p0_automatic_final.py \
+python FastMRI_Inference.py \
     --stage1-ckpt /path/to/stage1.ckpt \
     --stage2-ckpt /path/to/stage2.ckpt \
     --data-dir /path/to/test_slices \
@@ -436,10 +425,10 @@ Three preprocessing modes handle coordinate system differences:
 
 ---
 
-## Evaluation — ROC Curves and Detection Metrics (`fastMRI_ROC_Curve_Calculations.py`)
+## Evaluation — ROC Curves and Detection Metrics (`FastMRI_ROC_Curve_Calculations.py`)
 
 ```bash
-python fastMRI_ROC_Curve_Calculations.py \
+python FastMRI_ROC_Curve_Calculations.py \
     --input /path/to/results_v4_zscore.json \
     --output-dir /path/to/roc_figures \
     [--category "Mass"] \
@@ -476,14 +465,14 @@ python fastMRI_ROC_Curve_Calculations.py \
 
 ## Exact Replication Checklist
 
-- [ ] IXI T1 volumes pre-processed with `IXI_dataset_overview.py`, slices 128–188, z-clip [−3,3], 256×256 crop, 90° CCW rotation, saved as `.npz`
+- [ ] IXI T1 volumes pre-processed with `IXI_dataset_overview_collection.py`, slices 128–188, z-clip [−3,3], 256×256 crop, 90° CCW rotation, saved as `.npz`
 - [ ] Stage 1 trained 100 epochs, batch=192, lr=2e-4, embed_dim=256, codebook_size=256, perceptual_weight=0.5, full augmentation suite enabled
 - [ ] Stage 2 trained 100 epochs, batch=158, lr=2e-4, embed_dim=256, codebook_size=256 both levels, 2000-step LR warmup, Stage 1 frozen
 - [ ] Calibration run on "Normal" FastMRI slices with smoothing_kernel=15, heal_patterns=[0,1]
 - [ ] Inference uses identical smoothing_kernel=15, z_threshold=2.0, num_iterations=3, heal_steps=12, heal_temperature=0.8, inpaint_steps=12, inpaint_temperature=0.9, token_surprisal_samples=50, mask_ratio=0.15
 - [ ] Annotation boxes loaded from `brain.csv` with the appropriate `--annotation-preprocess-mode`
 - [ ] Patient-level scores aggregated from `clamped_pixel_sum` over all evaluated slices
-- [ ] ROC curves generated with `fastMRI_ROC_Curve_Calculations.py` per anomaly category
+- [ ] ROC curves generated with `FastMRI_ROC_Curve_Calculations.py` per anomaly category
 
 ---
 
@@ -493,8 +482,8 @@ This section was added after cross-checking the repository code against the orig
 
 ### What is actively used at runtime vs. what is reference material
 
-- `FastMRI_train.py`, `FastMRI_model_stage1.py`, `FastMRI_model_stage2.py`, `Inference_FastMRI_SOTA_5p_Rec_Heal_5p0_automatic_final.py`, `IXI_dataset_overview.py`, and `fastMRI_ROC_Curve_Calculations.py` are the main active workflow scripts.
-- `fastMRI_brain_config.yaml` is a **reference/config summary**, but the main scripts inspected here do **not** automatically load it at runtime.
+- `Train_frameworks.py`, `FastMRI_model_stage1.py`, `FastMRI_model_stage2.py`, `FastMRI_Inference.py`, `IXI_dataset_overview_collection.py`, and `FastMRI_ROC_Curve_Calculations.py` are the main active workflow scripts.
+- `config.yaml.yaml` is a **reference/config summary**, but the main scripts inspected here do **not** automatically load it at runtime.
 - Several important training and inference settings are defined directly inside Python scripts and CLI defaults rather than being read from YAML.
 
 ### Important implementation clarifications
@@ -515,19 +504,19 @@ The script still computes `lpips_input_recon`, but that is mainly used for auxil
 
 This differs conceptually from the pelvic README framing and should be kept in mind when interpreting results.
 
-#### 2. `fastMRI_brain_config.yaml` is not the active runtime controller
+#### 2. `config.yaml.yaml` is not the active runtime controller
 
 Although the YAML file documents the intended settings well, the currently inspected scripts define the active behavior directly.
 
 Examples:
 
-- `FastMRI_train.py` defines its own CLI defaults for paths, batch size, LR, checkpoint loading, WandB, etc.
-- `Inference_FastMRI_SOTA_5p_Rec_Heal_5p0_automatic_final.py` defines its own inference defaults directly
+- `Train_frameworks.py` defines its own CLI defaults for paths, batch size, LR, checkpoint loading, WandB, etc.
+- `FastMRI_Inference.py` defines its own inference defaults directly
 - the YAML is therefore best understood as a structured record/reference, not the sole runtime source of truth
 
 #### 3. Training depends on a shared/external dataset module
 
-`FastMRI_train.py` imports:
+`Train_frameworks.py` imports:
 
 ```python
 from dataset import SliceDataModule
@@ -563,7 +552,7 @@ This file records the exact selected calibration files and active filters. It is
 
 The README examples are useful, but readers should distinguish them from the script defaults.
 
-Examples of current defaults in `Inference_FastMRI_SOTA_5p_Rec_Heal_5p0_automatic_final.py` include:
+Examples of current defaults in `FastMRI_Inference.py` include:
 
 - `--z-threshold "(-2.5 , 6.0)"` for two-sided thresholding
 - `--smoothing-kernel 7`
