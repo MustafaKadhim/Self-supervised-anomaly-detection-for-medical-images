@@ -43,7 +43,7 @@ Final_Code_Phiro_Brain_MRI/
 | Input | Grayscale T1 brain MRI slice, 256×256 |
 | `PatchEmbedding` | Conv2d (kernel=stride=patch_size), maps (B,1,256,256) → (B, seq_len, embed_dim) |
 | `ViTEncoder` | TransformerEncoder, depth=8, heads=8, GELU, dropout=0.1; learned positional embedding (randn×0.02) |
-| `MultiScaleEncoder` | (included but not used) Feature pyramid with Conv2d projections at stride 1/2/4; fused via cross-attention (8 heads) |
+| `MultiScaleEncoder` | ***(Included but not used)*** Feature pyramid with Conv2d projections at stride 1/2/4; fused via cross-attention (8 heads) |
 | `ResidualVQ` | 2-level residual quantization; codebook_size=256 per level; kmeans_init, EMA decay=0.85, orthogonal_reg_weight=0.1, threshold_ema_dead_code=0.1 |
 | `PixelShuffleDecoder` | stem (Conv2d → SiLU) → 3 residual blocks (3 conv + GroupNorm8 + SiLU) → upsample blocks (Conv→PixelShuffle×2→SiLU) → 1-ch head; num_upsample=log2(patch_size) |
 | Output clamp | `torch.clamp(recon, -3.0, 3.0)` |
