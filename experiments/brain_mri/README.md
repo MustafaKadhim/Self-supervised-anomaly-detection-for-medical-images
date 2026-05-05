@@ -503,9 +503,7 @@ python Train_frameworks.py --stage2 [args] --wandb-off
 stage1, stage2 = load_models(stage1_ckpt, stage2_ckpt, device)
 ```
 
-> `perceptual_loss.*` keys are stripped from the Stage 1 state dict before loading (`strict=False`) so inference does not require BiomedCLIP.
-
-#### Step 2 — Calibration (Healthy Volunteers)
+#### Step 2 — Calibration (You shall only include Normal/Refernce samples in this step)
 
 ```bash
 python FastMRI_Inference.py \
@@ -519,11 +517,11 @@ python FastMRI_Inference.py \
     --heal-patterns "0,1"
 ```
 
-**Per healthy slice:**
-1. Ensemble heal (checkerboard patterns 0 and 1, optional TTA flip)
-2. `LPIPS(original, healed)` → spatial heatmap
+**Per Normal/Refernce slice:**
+1. Ensemble heal (checkerboard patterns, optional TTA flip enabled)
+2. `LPIPS(original or reconstructed, healed)` → perceptual heatmap
 3. Average-pool smooth with `kernel=15`
-4. Accumulate across healthy population → compute μ (mean) and σ (std) per pixel
+4. Accumulate across your Normal/Reference population → compute μ (mean) and σ (std) per pixel to obtain a calibration map. 
 
 > ⚠️ **Critical:** `--smoothing-kernel` must be identical between calibration and inference.
 
@@ -539,89 +537,29 @@ python FastMRI_Inference.py \
     --z-threshold 2.0 \
     --smoothing-kernel 15 \
     --num-iterations 3 \
-    --heal-patterns "0,1" \
-    --heatmap-aggregation mean \
+    --heal-patterns "0,1" \        # You can choose whatever pattern you like :D
+    --heatmap-aggregation mean \   # I have included other aggregation options in case you dont like "mean"
     --annotation-csv /path/to/brain.csv
 ```
 
-### Pipeline Steps Inside `recursive_automask_v4_zscore`
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  1. Sharpness Scoring                                       │
-│     Laplacian variance (blur_threshold=0.002)               │
-│     Flags motion-blurred slices                             │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────────┐
-│  2. Token Surprisal                                       │
-│     50 MC masking passes (mask_ratio=0.15)                │
-│     NLL of true L1 token on masked positions              │
-│     Clamps values below 5.0 to zero                       │
-│     Output: (B, 1, Ht, Wt) token-resolution map             │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────────┐
-│  3. Ensemble Healing                                      │
-│     For each checkerboard pattern [0,1]:                   │
-│     • MaskGIT heals masked tokens (12 steps, temp=0.8)    │
-│     • L1 first (fully-masked L2 context)                   │
-│     • L2 conditioned on healed L1                          │
-│     • Optional horizontal-flip TTA                         │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────────┐
-│  4. LPIPS Heatmap                                         │
-│     VGG backbone, spatial=True                            │
-│     Pixel-wise perceptual distance: original vs healed      │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────────┐
-│  5. Aggregation                                           │
-│     Over ensemble branches: mean/max/logsumexp/geomean     │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────────┐
-│  6. Iteration 0 Masking                                   │
-│     With calibration: Z = (LPIPS − μ) / (σ + ε)           │
-│     Threshold: Z > z_threshold                             │
-│     Without calibration: 95th percentile → dilation(3)    │
-│     Remove small regions (<5 pixels)                       │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────────┐
-│  7. Targeted Inpainting (Iterations 1–2)                  │
-│     build_token_mask: pixel mask → token mask             │
-│     targeted_inpaint: regenerate flagged tokens (12 steps) │
-│     Non-flagged tokens locked exactly                     │
-│     Between iterations: dilation(kernel=5)                  │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────────┐
-│  8. Binary + Token Surprisal Fusion                       │
-│     LPIPS map (60th percentile) + Gaussian-smoothed       │
-│     token surprisal (55% LPIPS + 45% max of both)         │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Output Fields per Slice
+### Output Fields per Slice for In-depth Analysis
 
 | Field | Description |
 |:------|:------------|
-| `Binary_Sum_Heatmap` | Pixel count of the fused binary detection mask |
-| `clamped_pixel_sum` | Sum of LPIPS values above clamp threshold |
-| `token_surprisal_hot_px` | Count of high-surprisal tokens upsampled to pixel space |
-| `sharpness_score` | Laplacian variance (motion artifact proxy) |
+| `Binary_Sum_Heatmap`         | Pixel count of the fused binary detection mask |
+| `clamped_pixel_sum`          | Sum of LPIPS values above clamp threshold |
+| `token_surprisal_hot_px`     | Count of high-surprisal tokens upsampled to pixel space |
 | `lpips_input_recon_sum_mask` | Total LPIPS inside the anomaly mask region |
-| `anomaly_pixel_count` | Pixel count of the anomaly mask |
-| `has_ground_truth_bbox` | Whether an annotation box is present |
-| `num_true_positive_bboxes` | Bounding-box TP count (ratio ≥ 10% overlap) |
-| `inside_bbox_detection_ratio` | Mean fraction of GT box pixels that are flagged |
-| `precision`, `f1_score` | Per-slice localisation quality metrics |
+| `anomaly_pixel_count`        | Pixel count of the anomaly mask |
+| `has_ground_truth_bbox`      | Whether an annotation box is present (optional) |
+| `num_true_positive_bboxes`   | Bounding-box TP count (ratio ≥ 10% overlap) (optional) |
+| `inside_bbox_detection_ratio` | Mean fraction of GT box pixels that are flagged (optional) |
+| `precision`, `f1_score`      | Per-slice localisation quality metrics (optional) |
+| `sharpness_score`            | Laplacian variance as motion/blur artifact proxy (optional) |
 
-Results saved to `results_v4_zscore.json` (one entry per slice) plus per-slice PNG figures.
+Results saved to `results_v4_zscore.json` (one entry per slice) plus per-slice detailed PNG figures with analysis.
 
-### Annotation Box Evaluation
+### Annotation Box Evaluation (Optional: in case you want to investigate the overlap of your anomaly heatmaps with bounding boxes for analysis)
 
 | Feature | Description |
 |:--------|:------------|
@@ -631,6 +569,7 @@ Results saved to `results_v4_zscore.json` (one entry per slice) plus per-slice P
 | **Precision** | `TP / (TP + FP_ratio)` |
 | **F1** | `2P / (P+1)` for `TP=1` |
 
+---
 
 ## Evaluation
 
