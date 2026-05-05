@@ -1,4 +1,4 @@
-# Two-Stage Anomaly Detection Framework for Pelvic MRI 
+# Two-Stage Anomaly Detection Framework for Pelvic MRI (LUND-PROBE)
 
 ## Overview
 
@@ -7,19 +7,18 @@ The framework is trained exclusively on healthy subjects and detects anomalies a
 
 ### Core Idea
 
-**Stage 1 — RVQ-VAE (`Model_Stage_1.py`):** A ViT-based encoder compresses each 2D slice into a discrete token grid via Residual Vector Quantization (RVQ). A PixelShuffle decoder reconstructs the image from quantized tokens.
+**Stage 1 — RVQ-VAE (`model_stage1.py`):** A ViT-based encoder compresses each 2D slice into a discrete token grid via Residual Vector Quantization (RVQ). A PixelShuffle decoder reconstructs the image from quantized tokens.
 
-**Stage 2 — Factorized MaskGIT (`Model_Stage_2.py`):** A bidirectional masked generative transformer learns the joint distribution over the Stage-1 token sequences. The model jointly predicts two codebook levels (structure L1 and texture L2) using factorized task conditioning and 3D Rotary Position Embeddings (RoPE) that encode row, column, and slice-axis positions.
+**Stage 2 — Factorized MaskGIT (`model_stage2.py`):** A bidirectional masked generative transformer learns the joint distribution over the Stage-1 token sequences. The model jointly predicts two codebook levels (structure L1 and texture L2) using factorized task conditioning and 3D Rotary Position Embeddings (RoPE) that encode row, column, and slice-axis positions.
 
-**Inference —  (`Inference_Pelvis_Experiments.py`):** 
-At inference, the framework:
-1. "Heals" the input by regenerating tokens with deterministic checkerboard masks,
+**Inference — Recursive-AutoMask V4 (`Inference_LUNDPROBE_final.py`):** At inference, the framework:
+1. "Heals" the input by regenerating tokens with deterministic checkerboard masks (ensemble),
 2. Computes an LPIPS perceptual difference map between input and healed image,
 3. Converts the map to Z-scores using population statistics from a calibration set of healthy volunteers,
-4. Optional: Iteratively refines the anomaly mask with targeted inpainting if the user wants,
-5. Aggregats the final perceptual score with token surprisal (pseudo-PLL) score to achive the final anomaly score.
+4. Iteratively refines the anomaly mask with targeted inpainting,
+5. Augments the final score with token surprisal (pseudo-PLL) for complementary evidence.
 
-**Evaluation — ROC curves (`ROC_Curves_Calculations.py`):** Patient-level ROC-curves stratified by anomaly category (synthetic, clinical, etc.).
+**Evaluation — ROC curves (`ROC_Curves_Calculations.py`):** Patient-level ROC curves stratified by anomaly category (synthetic, clinical, spacer, etc.).
 
 ---
 
@@ -27,19 +26,19 @@ At inference, the framework:
 
 ```
 Final_Code_Phiro_Pelvic_MRI/
-├── model_Stage_1.py                                    # Stage 1: ViT-RVQ-VAE
-├── Model_Stage_2.py                                    # Stage 2: Factorized MaskGIT
-├── Framework_train.py                                 # Training entry-point (both stages)
+├── model_stage1.py                                    # Stage 1: ViT-RVQ-VAE
+├── model_stage2.py                                    # Stage 2: Factorized MaskGIT
+├── train.py                                           # Training entry-point (both stages)
 ├── dataset.py                                         # NpySliceDataset + SliceDataModule
 ├── preslice_volumes.py                                # Pre-slicing NIfTI volumes -> .npy
-├── Inference_Pelvis_Experiments.py.py                 # Full inference pipeline (Recursive-AutoMask V4)
+├── Inference_LUNDPROBE_final.py                       # Full inference pipeline (Recursive-AutoMask V4)
 ├── ROC_Curves_Calculations.py                         # ROC / AUC evaluation utilities
 ├── External_dataset.py                                # External cohort dataset loader
-├── Simulate_local_prostate_anomalies.py               # Simulate local anomalies influencing the prostate 
-├── Simulated_anomalies_and_Clinical_dataset.py        # Convert DICOM to nifti and generate global synthetic anomalies. 
-├── Train_Val_Test_Exact_DataSplits_LUND_PROBE.json    # Exact patient-level train/val/test splits for the pelvis experiments
-├── Pelvis_experiments_requirements.txt                # Full needed Python packages 
-└── config.yaml                                   # Centralised configuration (all hyperparameters)
+├── inference_v3_support_CJG.py                        # Legacy inference helper (CJG cohort)
+├── inference_v4_extended_CJG.py                       # Extended inference (CJG cohort)
+├── Train_Val_Test_Exact_DataSplits_LUND_PROBE.json    # Exact patient-level train/val/test splits
+├── LUNDPROBE_requirements.txt                         # Full pinned Python environment
+└── config_yaml.yaml                                   # Centralised configuration (all hyperparameters)
 ```
 
 ---
@@ -61,20 +60,21 @@ Final_Code_Phiro_Pelvic_MRI/
 | Optimiser | AdamW (β=(0.9, 0.95), weight_decay=1e-4) + cosine annealing LR over max_epochs |
 | Precision | float32 matmul set to "medium" via `torch.set_float32_matmul_precision` |
 
-**BiomedCLIP perceptual loss** — The frozen vision encoder of
-`microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224` 
+**BiomedCLIP perceptual loss** — The frozen vision tower of
+`microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224` (or an open_clip equivalent)
 extracts pooled features from both reconstructed and target images. Loss = 1 − cosine_similarity.
 Grayscale slices are replicated to 3 channels and resized to 224×224 with minmax normalisation before encoding.
+A lightweight L1 fallback (`PerceptualLossStub`) is used if BiomedCLIP is unavailable.
 
-**Quantisation error map** — (Optional feature): The per-token squared L2 distance between pre- and post-quantisation token
+**Quantisation error map** — The per-token squared L2 distance between pre- and post-quantisation token
 embeddings is reshaped to the 2D token grid (32×32 for patch_size=8) and upsampled to pixel resolution.
 This map forms the third component of the anomaly score during inference.
 
-**Validation visualisations** — At the end of every validation epoch, up to 4 samples from centeral slices 40–48
-are visualised (input, reconstruction, L1-and L2-codebook index maps, PSNR) and saved to `RQC_ValExamples/`.
-An augmentation preview is saved once at the first training batch for quality control that the input images are of expected quality.
+**Validation visualisations** — At the end of every validation epoch, up to 4 samples from slices 40–48
+are visualised (input, reconstruction, Q1 and Q2 codebook index maps, PSNR) and saved to `RQC_ValExamples/`.
+An augmentation preview is saved once at the first training batch.
 
-### Stage 2 — `Factorized Transformer (Fact-biT)`
+### Stage 2 — `FactorizedMaskGIT`
 
 | Component | Details |
 |-----------|---------|
@@ -580,6 +580,110 @@ To exactly replicate the published experiments:
 ## Citation
 
 If you use this code, please cite our work. BibTeX entry to be added upon publication.
+
+---
+
+## Acknowledgements
+
+- [vector-quantize-pytorch](https://github.com/lucidrains/vector-quantize-pytorch) — ResidualVQ implementation.
+- [MONAI](https://monai.io/) — Medical imaging transforms and data utilities.
+- [BiomedCLIP](https://huggingface.co/microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224) — Domain-adapted perceptual loss during Stage 1 training.
+- [lpips](https://github.com/richzhang/PerceptualSimilarity) — Spatial LPIPS used in the inference heatmap.
+- [PyTorch Lightning](https://lightning.ai/) — Training framework.
+
+---
+
+## Code Audit Addendum (README update)
+
+This section was added after cross-checking the repository code against the original README so readers do not miss implementation details that affect reproducibility.
+
+### What is actively used at runtime vs. what is reference material
+
+- `train.py`, `dataset.py`, `Inference_LUNDPROBE_final.py`, `External_dataset.py`, and `ROC_Curves_Calculations.py` are the main active workflow scripts.
+- `config_yaml.yaml` is a **central reference/config record**, but the main scripts inspected here do **not** load it automatically at runtime. In practice, many important settings are defined directly in Python defaults or hard-coded in the scripts.
+- The exact split manifest `Train_Val_Test_Exact_DataSplits_LUND_PROBE.json` is included for documentation/reproducibility, but the current `SliceDataModule` implementation in `dataset.py` does **not** consume this JSON directly.
+
+### Important implementation clarifications
+
+#### 1. Train/validation split behavior in `dataset.py`
+
+The original README describes the exact paper split file and optional JSON-based splitting. In the currently inspected code:
+
+- `SliceDataModule.setup()` scans `data_dir` for `*.npy`
+- keeps only filenames containing `_slice_`
+- filters out unreadable / empty / invalid arrays
+- performs a **random 90/10 train/val split**
+- uses `torch.Generator().manual_seed(42)` for reproducibility
+
+So readers should understand that the current datamodule uses an **internal random split**, not the JSON manifest.
+
+#### 2. `config_yaml.yaml` is not the active source of truth
+
+Although `config_yaml.yaml` documents the intended workflow settings very well, the current code paths inspected here do not parse it automatically. Examples:
+
+- `train.py` defines CLI defaults directly
+- `train.py` hardcodes key Stage 1 values when instantiating the model (`embed_dim=256`, `codebook_size=192`, `commitment_cost=0.25`)
+- `Inference_LUNDPROBE_final.py` defines its own CLI defaults directly
+
+For exact replication, the **Python script defaults / arguments actually passed at runtime** are what matter most.
+
+#### 3. Calibration CLI documentation vs. actual CLI
+
+The original README example includes flags such as:
+
+- `--calibration-output`
+- `--use-per-slice-stats`
+
+These are **not exposed as CLI arguments** in the inspected `Inference_LUNDPROBE_final.py`.
+
+Current behavior:
+
+- calibration output is written inside `--output-dir` as `zscore_calibration.npz`
+- per-slice calibration statistics are computed inside `run_calibration(...)` rather than being toggled through a documented CLI flag in the current script
+
+#### 4. Paper/recommended settings vs. script defaults
+
+Some documented settings reflect the intended/paper workflow, but the current CLI defaults in `Inference_LUNDPROBE_final.py` differ and should not be confused with the paper configuration.
+
+Examples of current defaults in the script:
+
+- `--num-iterations 1`
+- `--heal-steps 6`
+- `--heal-temperature 0.3`
+- `--heal-patterns "2,3"`
+- `--token-surprisal-mask-ratio 0.90`
+
+These differ from the paper-like settings documented elsewhere in the README, such as 12 healing steps, temperature 0.8, checkerboard patterns `[0,1]`, and multi-iteration inference.
+
+**Recommendation for readers:** treat the README “exact replication” values as the intended experimental settings, and treat the raw script defaults as local working defaults unless explicitly overridden.
+
+#### 5. Stage 2 training slice filtering is path-dependent
+
+`FactorizedMaskGIT.training_step()` extracts slice indices from file paths and then applies `_filter_training_slices(...)` with the configured range `[30, 60]`.
+
+This means:
+
+- filenames must encode slice position in the form `..._slice_<idx>...`
+- slice filtering happens **during Stage 2 training**, after the batch is loaded
+- if no slices in a batch remain after filtering, the batch is skipped
+
+This naming dependency is important for custom datasets.
+
+#### 6. External preprocessing defaults are narrower than the generic training slice handling
+
+`External_dataset.py` currently defaults to:
+
+- `slice_range=(38, 50)` in `process_external_dataset(...)`
+- naming outputs as `{category}_{case_folder}_{volume_name}_slice_{idx:03d}.npy`
+
+This is particularly relevant because downstream inference / ROC grouping depends on the encoded filename metadata.
+
+### Practical reproducibility notes for readers
+
+- Many default paths in `train.py`, `Inference_LUNDPROBE_final.py`, and `ROC_Curves_Calculations.py` are absolute local paths and must usually be overridden.
+- If you want the workflow to match the documented paper configuration, do **not** assume the current script defaults are already correct.
+- If you want the JSON split to be enforced, that requires additional code support beyond the currently inspected datamodule.
+- `config_yaml.yaml` is best understood as a structured reference of intended settings, not an automatically consumed experiment config.
 
 ---
 
