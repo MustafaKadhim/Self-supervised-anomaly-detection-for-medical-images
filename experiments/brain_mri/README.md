@@ -1,16 +1,32 @@
 # 🧠 Two-Stage Anomaly Detection for Brain MRI
 
-Unsupervised anomaly detection framework for T1-weighted brain MRI, adapted from the pelvic pipeline. The model trains exclusively on healthy subjects and detects anomalies at inference time by measuring divergence from the learned distribution. Datasets used are **(fastMRI/fastMRI+/IXI)**.
+Unsupervised anomaly detection framework for T1-weighted brain MRI, adapted from the pelvic pipeline. The model trains exclusively on healthy subjects and detects anomalies at inference time by measuring divergence from the learned distribution.
+
+**Datasets:** fastMRI / fastMRI+ / IXI
 
 ---
 
-## Overview
+## 📋 Table of Contents
 
-The framework consists of two sequentially trained stages:
+- [Overview](#overview)
+- [Repository Structure](#repository-structure)
+- [Architecture](#architecture)
+  - [Stage 1 — RVQ-VAE](#stage-1--rvq-vae)
+  - [Stage 2 — Fact-biT](#stage-2--fact-bit)
+- [Environment](#environment)
+- [Data Preparation](#data-preparation)
+- [Training](#training)
+- [Inference Pipeline](#inference-pipeline)
+- [Evaluation](#evaluation)
+- [Key Differences vs. Pelvic MRI](#key-differences-vs-pelvic-mri)
+- [Exact Replication Checklist](#exact-replication-checklist)
+- [Code Audit Addendum](#code-audit-addendum)
+
+---
 
 | Stage | Model | Purpose |
-|-------|-------|---------|
-| **Stage 1** | RVQ-VAE (ViT encoder + PixelShuffle decoder) | Learn a tokens of healthy brain appearance |
+|:-----:|:-----:|:--------|
+| **Stage 1** | RVQ-VAE (ViT encoder + PixelShuffle decoder) | Learn tokens of healthy brain appearance |
 | **Stage 2** | Factorized MaskGIT (bidirectional masked transformer) | Learn token distributions; estimate per-token surprise at inference |
 
 ---
@@ -19,18 +35,20 @@ The framework consists of two sequentially trained stages:
 
 ```
 Final_Code_Phiro_Brain_MRI/
-├── FastMRI_model_stage1.py                    # Stage 1: RVQ-VAE
-├── FastMRI_model_stage2.py                    # Stage 2: Fact-biT
-├── Train_frameworks.py                        # Training of both stages
-├── FastMRI_Inference.py                       # Detailed inference and visualization pipeline
-├── Heatmaps_ideas_generator.py                # Colormap visualisation utility
-├── FastMRI_ROC_Curve_Calculations.py          # Patient-level ROC analysis
-├── IXI_dataset_overview_collection.py         # IXI NIfTI → .npz pre-processing
-├── collect_normal_slices.py                   # Filter normal slices from annotation CSVs
-├── Render_patient_slices_from_csv.py          # Render/export slices from CSV or label folders
-├── dataset.py                                 # needed utils
-└── config.yaml.yaml                           # Centralised configuration (this repo)
+├── 📄 FastMRI_model_stage1.py            # Stage 1: RVQ-VAE
+├── 📄 FastMRI_model_stage2.py            # Stage 2: Fact-biT
+├── 📄 Train_frameworks.py                # Training of both stages
+├── 📄 FastMRI_Inference.py               # Detailed inference and visualization pipeline
+├── 📄 Heatmaps_ideas_generator.py        # Colormap visualisation utility
+├── 📄 FastMRI_ROC_Curve_Calculations.py  # Patient-level ROC analysis
+├── 📄 IXI_dataset_overview_collection.py # IXI NIfTI → .npz pre-processing
+├── 📄 collect_normal_slices.py           # Filter normal slices from annotation CSVs
+├── 📄 Render_patient_slices_from_csv.py  # Render/export slices from CSV or label folders
+├── 📄 dataset.py                         # Shared dataset utilities (external dependency)
+└── 📄 config.yaml.yaml                   # Centralised configuration reference
 ```
+
+> ⚠️ **Note:** `dataset.py` is imported by `Train_frameworks.py` but lives **outside** this folder. Ensure it is available in your Python path.
 
 ---
 
@@ -38,69 +56,170 @@ Final_Code_Phiro_Brain_MRI/
 
 ### Stage 1 — RVQ-VAE (`FastMRI_model_stage1.py`)
 
-| Component | Detail |
-|-----------|--------|
-| Input | Grayscale T1 brain MRI slice, 256×256 |
-| `PatchEmbedding` | Conv2d (kernel=stride=patch_size), maps (B,1,256,256) → (B, seq_len, embed_dim) |
-| `ViTEncoder` | TransformerEncoder, depth=8, heads=8, GELU, dropout=0.1; learned positional embedding (randn×0.02) |
-| `MultiScaleEncoder` | ***(Included but not used)*** Feature pyramid with Conv2d projections at stride 1/2/4; fused via cross-attention (8 heads) |
-| `ResidualVQ` | 2-level residual quantization; codebook_size=256 per level; kmeans_init, EMA decay=0.85, orthogonal_reg_weight=0.1, threshold_ema_dead_code=0.1 |
-| `PixelShuffleDecoder` | stem (Conv2d → SiLU) → 3 residual blocks (3 conv + GroupNorm8 + SiLU) → upsample blocks (Conv→PixelShuffle×2→SiLU) → 1-ch head; num_upsample=log2(patch_size) |
-| Output clamp | `torch.clamp(recon, -3.0, 3.0)` |
+#### Architecture Flow
 
-**Key difference vs. Pelvic version:**
-- `embed_dim=256` (same) but `codebook_size=256` (vs 192 for pelvic)
-- **Augmentation is much richer**: RandScaleIntensity(0.1, p=0.33) + RandAdjustContrast(γ∈[0.5,1.5], p=0.33) + **RandGaussianNoise(p=0.50, std=0.30)** + RandAffine(p=0.33, ±15°, ±15px, zoom 0.8–1.2) + RandFlip(horizontal, p=0.5)
-- Translation is **bi-directional** (horizontal + vertical), not horizontal-only
-- An augmentation preview is saved to `FastMRI_RQC_ValExamples/augmentations_preview.png` on the first training batch (sanity check)
-- Decoder `base_channels=embed_dim` (self-sizing), so the 3rd residual block adds an extra conv pass for richer texture reconstruction
+```
+Input (B, 1, 256, 256)
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  PatchEmbedding                     │
+│  Conv2d(kernel=stride=patch_size) │
+│  (B, 1, 256, 256) → (B, seq, dim) │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│  ViTEncoder                         │
+│  • Depth: 8                         │
+│  • Heads: 8                         │
+│  • Activation: GELU                 │
+│  • Dropout: 0.1                     │
+│  • Positional Embedding: learned    │
+│    (randn × 0.02)                   │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│  ResidualVQ                         │
+│  • Levels: 2                        │
+│  • Codebook size: 256 per level     │
+│  • kmeans_init, EMA decay: 0.85     │
+│  • Orthogonal reg: 0.1              │
+│  • Dead code threshold: 0.1         │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│  PixelShuffleDecoder                │
+│  • Stem: Conv2d → SiLU              │
+│  • 3 ResBlocks (3×Conv + GN8 + SiLU)│
+│  • Upsample: Conv → PixelShuffle×2  │
+│  • num_upsample = log₂(patch_size)  │
+│  • base_channels = embed_dim        │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+    Output (clamped: [-3.0, 3.0])
+```
 
-**Loss:** L1 reconstruction + BiomedCLIP perceptual loss (cosine feature similarity, frozen vision tower, `perceptual_weight=0.5`) + VQ commitment loss (weight=0.25).
+> **Note:** `MultiScaleEncoder` is included but **not active**. When enabled, it builds a feature pyramid at strides 1/2/4 fused via cross-attention (8 heads).
 
-**Optimizer:** AdamW(β=(0.9, 0.95), wd=1e-4) + CosineAnnealingLR(T_max=max_epochs).
+#### Component Details
 
-**Validation visualisation:** 4 random samples per epoch saved to `FastMRI_RQC_ValExamples/`; each 2×2 panel shows Input / Reconstruction / Q1 codebook indices / Q2 codebook indices with PSNR.
+| Component | Configuration |
+|:----------|:-------------|
+| **Input** | Grayscale T1 brain MRI slice, `256×256` |
+| **PatchEmbedding** | `Conv2d` with `kernel_size = stride = patch_size` |
+| **ViTEncoder** | `TransformerEncoder`, depth=`8`, heads=`8`, `GELU`, dropout=`0.1` |
+| **Positional Embedding** | Learned, initialized from `randn × 0.02` |
+| **MultiScaleEncoder** | *(Included but unused)* Feature pyramid with `Conv2d` projections at stride `1/2/4`, fused via cross-attention (`8` heads) |
+| **ResidualVQ** | 2-level residual quantization; `codebook_size=256` per level; `kmeans_init`, EMA decay=`0.85`, `orthogonal_reg_weight=0.1`, `threshold_ema_dead_code=0.1` |
+| **PixelShuffleDecoder** | Stem → 3 residual blocks → PixelShuffle upsample → 1-ch head; `num_upsample=log₂(patch_size)`; `base_channels=embed_dim` (self-sizing) |
+| **Output Clamp** | `torch.clamp(recon, -3.0, 3.0)` |
+
+#### 🔑 Key differences between Brain vs. Pelvic pipelines
+
+| Feature | **Brain (This)** | Pelvic |
+|:--------|:----------------:|:------:|
+| `codebook_size` | **`256`** | `192` |
+| `embed_dim` | `256` | `256` |
+| Augmentation | **Much Richer** | Basic |
+
+**Augmentation structure via MONAI:**
+
+```text
+RandScaleIntensity(0.1, p=0.33)
+    → RandAdjustContrast(γ∈[0.5, 1.5], p=0.33)
+    → RandGaussianNoise(std=0.30, p=0.50)      ← Heavier noise
+    → RandAffine(±15°, ±15px, zoom 0.8–1.2, p=0.33)
+    → RandFlip(horizontal, p=0.5)
+```
+
+> 📸 **Sanity Check:** Augmentation preview saved to `FastMRI_RQC_ValExamples/augmentations_preview.png` on the first training batch.
+
+#### Training Configuration
+
+| Parameter | Value |
+|:----------|:------|
+| **Reconstruction Loss** | `L1` |
+| **Perceptual Loss** | BiomedCLIP Cosine Feature Similarity (frozen vision encoder) |
+| **Perceptual Weight** | `0.5` |
+| **VQ Commitment Loss** | Weight = `0.25` |
+| **Optimizer** | `AdamW(β=(0.9, 0.95), weight_decay=1e-4)` |
+| **Scheduler** | `CosineAnnealingLR(T_max=max_epochs)` |
+| **Gradient Clipping** | `1.0` |
+| **Precision** | `32` (float32) |
+
+#### Validation Visualization ***(sanity check)***
+
+Every epoch, **4 random samples** are saved to `FastMRI_RQC_ValExamples/` as `2×2` panels:
+
+| Position | Content |
+|:---------|:--------|
+| **Top-Left** | Input |
+| **Top-Right** | Reconstruction |
+| **Bottom-Left** | Q1 Codebook Indices |
+| **Bottom-Right** | Q2 Codebook Indices |
+
+*PSNR reported per sample.*
 
 ---
 
 ### Stage 2 — Fact-biT (`FastMRI_model_stage2.py`)
 
-| Component | Detail |
-|-----------|--------|
-| Positional embedding | **2D RoPE** (row + column only, no slice axis); head_dim split into row_dim + col_dim |
-| `RotaryEmbedding2D` | max_positions=seq_hw+1, base=25000; precomputed cos/sin buffers |
-| `RMSNorm` | eps=1e-6, replaces LayerNorm |
-| `SwiGLU` | w1/w2/w3 linear layers; `silu(w1(x)) * w2(x)` → w3; dropout=0.0 |
-| `TransformerBlockSDPA` | pre-norm → QKV → 2D RoPE on Q,K → `F.scaled_dot_product_attention` → out_proj → pre-norm → SwiGLU |
-| Stack depth | 8 blocks, 8 heads |
-| Token embeddings | `l1_embed` (codebook_size+1, embed_dim), `l2_embed` (codebook_size+1, embed_dim), `task_embed` (2, embed_dim) |
-| seq_len | Derived automatically: (image_size // patch_size)² = 1024 (patch=8) |
+#### Architecture Flow
 
-**Key difference vs. Pelvic version:** The Brain MRI stage 2 uses **2D RoPE** (row, col) rather than 3D RoPE (row, col, slice). The slice position argument is accepted but silently ignored, ensuring full backward compatibility with inference code that passes `slice_pos`.
+```
+L1 Tokens ──→ l1_embed ──┐
+                          ├──→ Task Embed ──→ Transformer Stack ──→ L1/L2 Logits
+L2 Tokens ──→ l2_embed ──┤          ↑
+                          │    2D RoPE (row, col)
+Task ID  ──→ task_embed ──┘    RMSNorm + SwiGLU + SDPA
+```
 
-**Masking strategy:**
-- L1 tokens: 70% of time ratio ∈ [0.50, 0.75]; 30% of time ratio ∈ [0.20, 0.50]
-- L2 tokens: ratio ∈ [0.15, 0.55] from β(4, 4) distribution
-- 50% of training batches use block masking (random rectangles, union of overlapping blocks) instead of random masking
-- All masks guarantee ≥1 masked token per sample (vectorised enforcement)
-- Validation uses random masking (fixed ratio=0.20) + center mask (inner 67%×67%)
+#### Component Details
 
-**Training loss:** CE(L1 masked) + 0.25 × CE(L2 masked), label_smoothing=0.05.
+| Component | Configuration |
+|:----------|:-------------|
+| **Positional Embedding** | **2D RoPE** (row + column only, no slice axis); head_dim split into `row_dim + col_dim` |
+| **RotaryEmbedding2D** | `max_positions=seq_hw+1`, `base=25000`; precomputed cos/sin buffers |
+| **RMSNorm** | `eps=1e-6`, replaces LayerNorm |
+| **SwiGLU** | `w1/w2/w3` linear layers; `silu(w1(x)) * w2(x)` → `w3`; dropout=`0.0` |
+| **TransformerBlockSDPA** | Pre-norm → QKV → 2D RoPE on Q,K → `F.scaled_dot_product_attention` → out_proj → pre-norm → SwiGLU |
+| **Stack Depth** | `8` blocks, `8` heads |
+| **Token Embeddings** | `l1_embed` (`codebook_size+1`, `embed_dim`), `l2_embed` (`codebook_size+1`, `embed_dim`), `task_embed` (`2`, `embed_dim`) |
+| **seq_len** | `(image_size // patch_size)²` = `1024` (patch=`8`) |
 
-**Anomaly maps at inference** (four modes):
+> **Key Difference vs. Pelvic:** Brain MRI Stage 2 uses **2D RoPE** (row, col) rather than 3D RoPE (row, col, slice). The slice position argument is accepted but silently ignored for backward compatibility.
 
-| Method | Description |
-|--------|-------------|
-| `compute_anomaly_map` | All L1/L2 tokens masked; Z-score normalized NLL per component |
-| `compute_anomaly_map_sliding` | Sliding window (4×4, stride 2) + 8 MC passes per window; averaged NLL across overlaps |
-| `compute_anomaly_map_contextual` | Random 15% of tokens masked; only masked positions scored |
-| `compute_anomaly_map_iterative` | Iterative predict refinement (6 steps, initial_mask_ratio=0.70) → final NLL |
+#### Masking Strategy
 
-**Combined score:** `zscore(nll_l1) + l2_loss_weight × zscore(nll_l2) + q_error_weight × zscore(q_error)`, where z-scoring is per-image over spatial dimensions.
+| Token | Masking |
+|:------|:--------|
+| **L1** | 70% of time: ratio ∈ [0.50, 0.75]; 30% of time: ratio ∈ [0.20, 0.50] |
+| **L2** | ratio ∈ [0.15, 0.55] from `β(4, 4)` distribution |
+| **Block Masking** | 50% of batches use random rectangles (union of overlapping blocks) instead of random masking |
+| **Constraint** | All masks guarantee ≥1 masked token per sample (vectorised enforcement) |
+| **Validation** | Random masking (fixed ratio=0.20) + center mask (inner 67%×67%) |
 
-**Token frequency tracking:** Codebook utilisation, distribution entropy, and "lift" (acc − majority-class baseline) logged every 1000 batches. `print_token_frequency_summary()` can be called post-training to verify the model learned beyond mode-guessing.
+#### Training Configuration
 
-**Optimizer:** AdamW(β=(0.9, 0.98), wd=0.01) with separate param groups (no decay on bias/norm/embed); LambdaLR with 2000-step linear warmup → cosine decay.
+| Parameter | Value |
+|:----------|:------|
+| **Loss** | `CE(L1 masked) + 0.25 × CE(L2 masked)` |
+| **Label Smoothing** | `0.05` |
+| **Optimizer** | `AdamW(β=(0.9, 0.98), wd=0.01)` |
+| **Param Groups** | Separate groups (no decay on bias/norm/embed) |
+| **Scheduler** | `LambdaLR`: 2000-step linear warmup → cosine decay |
+
+#### Token Frequency Tracking
+
+- Codebook utilisation
+- Distribution entropy
+- "Lift" (`acc − majority-class` baseline)
+
+Logged every 1000 batches. Call `print_token_frequency_summary()` post-training to verify learning beyond mode-guessing.
 
 ---
 
@@ -114,13 +233,13 @@ pip install torch==2.8.0+cu128 pytorch-lightning==2.5.5 monai==1.5.1 \
     open_clip_torch==3.2.0 lpips==0.1.4 nibabel==5.3.2 imageio scipy tqdm matplotlib
 ```
 
-BiomedCLIP is loaded via `transformers` (`CLIPVisionModel`) with an automatic fallback to `open_clip`. The perceptual loss model is frozen during all training.
+> BiomedCLIP is loaded via `transformers` (`CLIPVisionModel`) with an automatic fallback to `open_clip`. The perceptual loss model is **frozen** during all training.
 
 ---
 
 ## Data Preparation
 
-### Training data: IXI dataset (healthy T1 brain volumes)
+### Training Data: IXI Dataset (Healthy T1 Brain Volumes)
 
 Use `IXI_dataset_overview_collection.py` to convert NIfTI volumes to `.npz` slices:
 
@@ -136,29 +255,41 @@ python IXI_dataset_overview_collection.py \
     --pattern "*.nii.gz"
 ```
 
-**Preprocessing pipeline per slice:**
-1. Load NIfTI, re-orient to closest-canonical axes (`nib.as_closest_canonical`)
-2. Pad/crop in-plane to 256×256 (`center_crop_or_pad`)
-3. Z-score normalise per volume: `(vol − μ) / σ`, clipped to [−3, 3]
-4. Rotate 90° CCW (`np.rot90(arr, k=1)`)
-5. Center crop or pad to 256×256
-6. Save as `.npz` with key `arr` (float32); naming pattern: `{file_id}_slice_{idx:03d}.npz`
+#### Preprocessing Pipeline per Slice
 
-Slices 128–188 correspond to informative axial brain slices (avoiding skull cap / base-of-brain).
+| Step | Operation |
+|:-----|:----------|
+| 1 | Load NIfTI, re-orient to closest-canonical axes (`nib.as_closest_canonical`) |
+| 2 | Pad/crop in-plane to `256×256` (`center_crop_or_pad`) |
+| 3 | Z-score normalise per volume: `(vol − μ) / σ`, clipped to `[−3, 3]` |
+| 4 | Rotate 90° CCW (`np.rot90(arr, k=1)`) |
+| 5 | Center crop or pad to `256×256` |
+| 6 | Save as `.npz` with key `arr` (float32); naming: `{file_id}_slice_{idx:03d}.npz` |
 
-**Intensity scale options:** `none` (keep raw z-score), `minus1_1` (rescale to [−1,1]), `zero1` (rescale to [0,1]).
+> Slices `128–188` correspond to informative axial brain slices (avoiding skull cap / base-of-brain).
 
-### FastMRI validation / test data
+**Intensity scale options:** `none` (keep raw z-score), `minus1_1` (rescale to `[−1,1]`), `zero1` (rescale to `[0,1]`).
+
+### FastMRI Validation / Test Data
 
 FastMRI Brain (T1) slices are organized by patient. For each volume:
-- Apply the same z-score normalisation and 256×256 crop
+- Apply the same z-score normalisation and `256×256` sizing
 - Save as `.npz` slices with the same naming convention
 
-### Anomaly annotation CSVs
+### Anomaly Annotation CSVs
 
-For evaluation, annotations are stored in CSVs with columns: `file`, `slice`, `x`, `y`, `width`, `height`, `label`, `study_level`, `base_size`. Three preprocessing modes are supported at inference time: `legacy`, `render_fastmri`, and `mask_pipeline`.
+For evaluation, annotations are stored in CSVs with columns:
 
-### Collecting normal slices for calibration
+| Column | Description |
+|:-------|:------------|
+| `file` | Patient identifier |
+| `slice` | Slice index |
+| `x, y, width, height` | Bounding box coordinates |
+| `label` | Anomaly label |
+| `study_level` | Global anomaly flag |
+| `base_size` | Reference image dimensions |
+
+### Example for Collecting Slices from fastMRI+
 
 ```bash
 python collect_normal_slices.py \
@@ -166,33 +297,42 @@ python collect_normal_slices.py \
     --patient-list Annotated_FastMRI_Brains.csv \
     --series-type AXT1 \
     --slice-start 0 \
-    --slice-end 5 \
+    --slice-end 10 \
     --png-root /path/to/Normal_Brains_pngs \
-    --output-csv normal_slices_0_5.csv
+    --output-csv normal_slices_0_10.csv
 ```
 
-A slice is classified as normal if: it has `study_level == "yes"`, its label contains the `--normal-label-keyword`, or it has no annotation at all.
+A slice is classified as normal if:
+- `study_level == "yes"`, **or**
+- label contains the `--normal-label-keyword`, **or**
+- it has no annotation at all
 
-### Rendering patient slices from CSV / label folders
+### Rendering Patient Slices
 
-`Render_patient_slices_from_csv.py` is the bridge between the FastMRI `.h5` source volumes and the 2D slice files/figures used for inspection, anomaly folder curation, and downstream inference inputs.
+`Render_patient_slices_from_csv.py` bridges FastMRI `.h5` source volumes to 2D slice files/figures.
 
-**What the script does:**
-- Recursively scans `--data-root` for FastMRI `.h5` files and keeps only the requested series type (default `AXT1`) using HDF5 metadata.
-- Accepts either:
-  - a CSV with `file[,slice,reason]`, or
-  - a `--label-root` folder created by `build_patient_Global_label_folders.py` / `build_patient_Local_label_folders.py`, where each label folder contains patient subfolders and optional `slices.csv` files.
-- Loads the `reconstruction_rss` volume, pads/crops every slice in-plane to **320×320**, performs **per-volume z-score normalisation**, clips intensities with `--z-clip` (default `-3,3`), optionally rescales to `[-1,1]` or `[0,1]`, then exports the requested slices.
-- Before saving each slice, applies `np.flipud(...)`, center-crops/pads to **320×320**, and resizes to **256×256**.
-- Saves arrays as `.npz` by default (key: `arr`) and/or PNG previews. PNGs can overlay detailed annotation boxes and label text from `Annotated_fastMRI_Brains_Detailed.csv`.
-- Supports `--include-label` and `--best-box-only` to keep only slices containing a requested local label and optionally choose the slice with the largest annotated bounding box per patient.
+#### What the Script Does
 
-**Typical outputs:**
-- Curated per-patient anomaly folders such as `label/patient_xxx/patient_xxx_slice_003.npz`
-- Matching PNG renderings for qualitative review
-- An optional updated CSV with `png_path` / `npy_path` columns
+| Step | Operation |
+|:-----|:----------|
+| Scan | Recursively scans `--data-root` for FastMRI `.h5` files; filters by series type (`AXT1`) |
+| Input | Accepts CSV with `file[,slice,reason]` OR `--label-root` folder with patient subfolders |
+| Process | Loads `reconstruction_rss`, pads/crops to `320×320`, per-volume z-score normalisation, clips `[−3,3]` |
+| Transform | `np.flipud(...)`, center-crop to `320×320`, resize to `256×256` |
+| Export | `.npz` (key: `arr`) and/or PNG previews with optional annotation overlays |
+| Filter | `--include-label` and `--best-box-only` for curated anomaly slices |
 
-**Example: render the best slice per patient for one local anomaly label**
+#### Typical Outputs
+
+```
+label/
+└── patient_xxx/
+    ├── patient_xxx_slice_003.npz
+    └── patient_xxx_slice_003.png
+```
+
+#### Example: Best Slice per Patient for One Label
+
 ```bash
 python Render_patient_slices_from_csv.py \
     --label-root /path/to/FastMRI_Local_Anomalies_ByLabel \
@@ -205,12 +345,12 @@ python Render_patient_slices_from_csv.py \
     --annotation-csv /path/to/Annotated_fastMRI_Brains_Detailed.csv
 ```
 
-This rendering/export preprocessing is important because it differs slightly from `IXI_dataset_overview_collection.py`: IXI training slices are written directly from NIfTI volumes, whereas FastMRI slices for anomaly review are generated from `.h5` reconstructions, normalised per volume, flipped vertically for display/orientation consistency, and then resized to the final 256×256 saved representation.
+> **Note:** IXI training slices are written directly from NIfTI volumes, whereas FastMRI slices for anomaly review are generated from `.h5` reconstructions with additional flip/resize steps.
 
+### Building Anomaly Label Folders
 
-### Building anomaly label folders
+#### Global Labels (Study-Level)
 
-**Global labels** (study-level, e.g. motion artifact):
 ```bash
 python build_patient_Global_label_folders.py \
     --anomalies-dir /path/to/FastMRI_Anomalies_Collection \
@@ -218,20 +358,29 @@ python build_patient_Global_label_folders.py \
     --output-dir /path/to/FastMRI_Global_Anomalies_ByLabel \
     --use-detailed
 ```
-Default global labels: `Motion artifact`, `Possible artifact`, `Colpocephaly`, `Extra-axial collection`, `Global label: Small vessel chronic white matter ischemic change`.
 
-**Local labels** (per-slice pathologies, e.g. mass, edema):
+**Default global labels:**
+- `Motion artifact`
+- `Possible artifact`
+- `Colpocephaly`
+- `Extra-axial collection`
+- `Global label: Small vessel chronic white matter ischemic change`
+
+#### Local Labels (Per-Slice Pathologies)
+
 ```bash
 python build_patient_Local_label_folders.py \
     --anomalies-dir /path/to/FastMRI_Anomalies_Collection \
     --detailed-csv Annotated_fastMRI_Brains_Detailed.csv \
     --output-dir /path/to/FastMRI_Local_Anomalies_ByLabel
 ```
-Default local labels: `Edema`, `Enlarged ventricles`, `Craniotomy`, `Mass`, `Nonspecific lesion`, `Resection cavity`, `Intraventricular substance`, `Paranasal sinus opacification`, `Posttreatment change`, `Nonspecific white matter lesion`, `Encephalomalacia`, `Dural thickening`, `Absent septum pellucidum`, `Lacunar infarct`, `Likely cysts`.
 
-### Inference data directory structure and `case_folder`
+**Default local labels:**
+`Edema`, `Enlarged ventricles`, `Craniotomy`, `Mass`, `Nonspecific lesion`, `Resection cavity`, `Intraventricular substance`, `Paranasal sinus opacification`, `Posttreatment change`, `Nonspecific white matter lesion`, `Encephalomalacia`, `Dural thickening`, `Absent septum pellucidum`, `Lacunar infarct`, `Likely cysts`
 
-The inference dataloader searches `--data-dir` recursively for `.npz` (or `.npy`) files. The `case_folder` field in each result JSON entry is set to the **immediate parent directory name** of each slice file. This allows grouping by patient or category when the data directory is structured as:
+### Inference Data Directory Structure
+
+The inference dataloader searches `--data-dir` recursively for `.npz` (or `.npy`) files. The `case_folder` field is set to the **immediate parent directory name**.
 
 ```
 data_dir/
@@ -242,7 +391,7 @@ data_dir/
     └── patient_xyz_slice_005.npz
 ```
 
-The `category` field in the JSON is set to the value passed via `--category` (or `"FastMRI"` by default). Use `--category "Mass"` to tag all files in a run with a specific anomaly label for stratified ROC analysis.
+The `category` field defaults to `"FastMRI"`. Use `--category "Mass"` to tag all files with a specific anomaly label for stratified ROC analysis.
 
 ---
 
@@ -263,26 +412,30 @@ python Train_frameworks.py --stage1 \
     --augment
 ```
 
-| Hyperparameter | Value |
-|----------------|-------|
-| `embed_dim` | 256 |
-| `codebook_size` | 256 (both levels) |
-| `commitment_cost` | 0.25 |
-| `perceptual_weight` | 0.5 |
-| `lr` | 2e-4 |
-| `batch_size` | 192 (Stage 1) |
-| `gradient_clip_val` | 1.0 |
-| `precision` | 32 (float32) |
-| GPU device | [1] |
+#### Hyperparameters
+
+| Parameter | Value |
+|:----------|:------|
+| `embed_dim` | `256` |
+| `codebook_size` | `256` (both levels) |
+| `commitment_cost` | `0.25` |
+| `perceptual_weight` | `0.5` |
+| `lr` | `2e-4` |
+| `batch_size` | `192` |
+| `gradient_clip_val` | `1.0` |
+| `precision` | `32` (float32) |
+| GPU device | `[1]` |
 
 Checkpoints saved to `FastMRI_IXI_Augmented_lightningCheckpoints/` as `FastMRI_stage1-{epoch:03d}-{val/loss:.4f}.ckpt`. Top-3 by `val/loss` are kept.
 
-**Fine-tuning from an existing Stage 1 checkpoint** (e.g. LUND-PROBE → FastMRI transfer):
+#### Fine-Tuning from Existing Checkpoint
+
 ```bash
 python Train_frameworks.py --stage1 \
     --pretrained-stage1-ckpt /path/to/previous_stage1.ckpt \
     [... other args ...]
 ```
+
 Loaded with `strict=False`; augmentations are disabled during fine-tuning (`use_augmentations=False`).
 
 ### Stage 2
@@ -300,50 +453,61 @@ python Train_frameworks.py --stage2 \
     --augment
 ```
 
-| Hyperparameter | Value |
-|----------------|-------|
-| `embed_dim` | 256 |
-| `codebook_size_level1/2` | 256 |
-| `depth` | 8 |
-| `num_heads` | 8 |
-| `warmup_steps` | 2000 |
-| `weight_decay` | 0.01 |
-| `l2_loss_weight` | 0.25 |
-| `q_error_weight` | 0.10 |
-| `label_smoothing` | 0.05 |
-| `batch_size` | 158 (Stage 2) |
-| `mask_ratio` (val) | 0.20 |
-| `mask_ratio_min/max` (train) | 0.15 / 0.75 |
+#### Hyperparameters
 
-Stage 1 is loaded from `--stage1-ckpt`, frozen, and set to `eval()`. Stage 2 weights can optionally be warm-started from a previous run via `--pretrained-stage2-ckpt`.
+| Parameter | Value |
+|:----------|:------|
+| `embed_dim` | `256` |
+| `codebook_size_level1/2` | `256` |
+| `depth` | `8` |
+| `num_heads` | `8` |
+| `warmup_steps` | `2000` |
+| `weight_decay` | `0.01` |
+| `l2_loss_weight` | `0.25` |
+| `q_error_weight` | `0.10` |
+| `label_smoothing` | `0.05` |
+| `batch_size` | `158` |
+| `mask_ratio` (val) | `0.20` |
+| `mask_ratio_min/max` (train) | `0.15` / `0.75` |
 
-### WandB logging
+Stage 1 is loaded from `--stage1-ckpt`, frozen, and set to `eval()`. Stage 2 weights can optionally be warm-started via `--pretrained-stage2-ckpt`.
+
+### WandB Logging
 
 ```bash
+# Enable logging
 python Train_frameworks.py --stage2 [args] \
     --wandb-project RVQ-MaskGIT-FastMRI-IXI \
     --wandb-run-name "Stage2-Augmented-FastMRI-IXI"
-# To disable WandB:
-    --wandb-off
+
+# Disable logging
+python Train_frameworks.py --stage2 [args] --wandb-off
 ```
 
-**Logged metrics (Stage 2):** `train/loss`, `train/loss_l1`, `train/loss_l2`, `train/acc_l1`, `train/acc_l2`, `train/lift_l1`, `train/lift_l2`, `train/baseline_l1`, `train/baseline_l2`, `train/l1_codebook_utilization`, `train/l2_codebook_utilization`, `train/l1_entropy`, `val/loss`, `val/loss_center`, `val/acc_center`, `val/lift_center`.
+#### Logged Metrics (Stage 2)
+
+| Category | Metrics |
+|:---------|:--------|
+| **Training** | `train/loss`, `train/loss_l1`, `train/loss_l2`, `train/acc_l1`, `train/acc_l2` |
+| **Lift** | `train/lift_l1`, `train/lift_l2`, `train/baseline_l1`, `train/baseline_l2` |
+| **Codebook** | `train/l1_codebook_utilization`, `train/l2_codebook_utilization`, `train/l1_entropy` |
+| **Validation** | `val/loss`, `val/loss_center`, `val/acc_center`, `val/lift_center` |
 
 ---
 
-## Inference Pipeline: Recursive-AutoMask V4
+## Inference Pipeline
 
-The main inference script is `FastMRI_Inference.py`.
+### Recursive-AutoMask V4
 
-### Step 1 — Model loading
+#### Step 1 — Model Loading
 
 ```python
 stage1, stage2 = load_models(stage1_ckpt, stage2_ckpt, device)
 ```
 
-`perceptual_loss.*` keys are stripped from the Stage 1 state dict before loading (`strict=False`) so inference does not require BiomedCLIP.
+> `perceptual_loss.*` keys are stripped from the Stage 1 state dict before loading (`strict=False`) so inference does not require BiomedCLIP.
 
-### Step 2 — Calibration (healthy volunteers)
+#### Step 2 — Calibration (Healthy Volunteers)
 
 ```bash
 python FastMRI_Inference.py \
@@ -357,15 +521,15 @@ python FastMRI_Inference.py \
     --heal-patterns "0,1"
 ```
 
-Per healthy slice:
+**Per healthy slice:**
 1. Ensemble heal (checkerboard patterns 0 and 1, optional TTA flip)
-2. LPIPS(original, healed) → spatial heatmap
-3. Average-pool smooth with kernel=15
+2. `LPIPS(original, healed)` → spatial heatmap
+3. Average-pool smooth with `kernel=15`
 4. Accumulate across healthy population → compute μ (mean) and σ (std) per pixel
 
-**Critical constraint:** `--smoothing-kernel` must be identical between calibration and inference.
+> ⚠️ **Critical:** `--smoothing-kernel` must be identical between calibration and inference.
 
-### Step 3 — Z-score inference
+#### Step 3 — Z-Score Inference
 
 ```bash
 python FastMRI_Inference.py \
@@ -382,21 +546,70 @@ python FastMRI_Inference.py \
     --annotation-csv /path/to/brain.csv
 ```
 
-### Pipeline steps inside `recursive_automask_v4_zscore`
+### Pipeline Steps Inside `recursive_automask_v4_zscore`
 
-1. **Sharpness scoring** — Laplacian variance (`compute_sharpness_score`) flags motion-blurred slices (blur_threshold=0.002).
-2. **Token surprisal** — 50 MC masking passes (mask_ratio=0.15); accumulates NLL of the true L1 token only on masked positions; clamps values below 5.0 to zero. Returns a (B,1,Ht,Wt) token-resolution map.
-3. **Ensemble healing** — For each checkerboard pattern in `heal_patterns` [0,1]: MaskGIT heals masked tokens (12 steps, temperature=0.8). L1 tokens healed first with fully-masked L2 context; L2 tokens healed conditioned on the healed L1. Optionally repeated with horizontal-flip TTA.
-4. **LPIPS heatmap** — `PerceptualLoss` (VGG backbone, spatial=True) computes pixel-wise perceptual distance between original and healed reconstruction.
-5. **Aggregation** — `aggregate_heatmaps` over ensemble branches (mean/max/logsumexp/geomean).
-6. **Iteration 0 masking** — If calibration loaded: Z = (LPIPS − μ) / (σ + ε); threshold Z > z_threshold. Otherwise: percentile threshold at 95th percentile → morphological dilation (kernel=3) → remove small regions (<5 pixels).
-7. **Targeted inpainting** (iterations 1–2) — `build_token_mask` converts the pixel anomaly mask to a token mask (mode: max/avg/topk); `targeted_inpaint` regenerates only flagged tokens (12 steps, temperature=0.9); non-flagged tokens locked exactly. Between iterations, the mask is dilated (kernel=5).
-8. **Binary + token surprisal fusion** — `build_final_lpips_binary_token_eval_mask` fuses the LPIPS map (above 60th percentile) with Gaussian-smoothed token surprisal (55% LPIPS + 45% max of LPIPS/surprisal).
+```
+┌─────────────────────────────────────────────────────────────┐
+│  1. Sharpness Scoring                                       │
+│     Laplacian variance (blur_threshold=0.002)               │
+│     Flags motion-blurred slices                             │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────┐
+│  2. Token Surprisal                                       │
+│     50 MC masking passes (mask_ratio=0.15)                │
+│     NLL of true L1 token on masked positions              │
+│     Clamps values below 5.0 to zero                       │
+│     Output: (B, 1, Ht, Wt) token-resolution map             │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────┐
+│  3. Ensemble Healing                                      │
+│     For each checkerboard pattern [0,1]:                   │
+│     • MaskGIT heals masked tokens (12 steps, temp=0.8)    │
+│     • L1 first (fully-masked L2 context)                   │
+│     • L2 conditioned on healed L1                          │
+│     • Optional horizontal-flip TTA                         │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────┐
+│  4. LPIPS Heatmap                                         │
+│     VGG backbone, spatial=True                            │
+│     Pixel-wise perceptual distance: original vs healed      │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────┐
+│  5. Aggregation                                           │
+│     Over ensemble branches: mean/max/logsumexp/geomean     │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────┐
+│  6. Iteration 0 Masking                                   │
+│     With calibration: Z = (LPIPS − μ) / (σ + ε)           │
+│     Threshold: Z > z_threshold                             │
+│     Without calibration: 95th percentile → dilation(3)    │
+│     Remove small regions (<5 pixels)                       │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────┐
+│  7. Targeted Inpainting (Iterations 1–2)                  │
+│     build_token_mask: pixel mask → token mask             │
+│     targeted_inpaint: regenerate flagged tokens (12 steps) │
+│     Non-flagged tokens locked exactly                     │
+│     Between iterations: dilation(kernel=5)                  │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────┐
+│  8. Binary + Token Surprisal Fusion                       │
+│     LPIPS map (60th percentile) + Gaussian-smoothed       │
+│     token surprisal (55% LPIPS + 45% max of both)         │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### Output fields per slice
+### Output Fields per Slice
 
 | Field | Description |
-|-------|-------------|
+|:------|:------------|
 | `Binary_Sum_Heatmap` | Pixel count of the fused binary detection mask |
 | `clamped_pixel_sum` | Sum of LPIPS values above clamp threshold |
 | `token_surprisal_hot_px` | Count of high-surprisal tokens upsampled to pixel space |
@@ -408,24 +621,31 @@ python FastMRI_Inference.py \
 | `inside_bbox_detection_ratio` | Mean fraction of GT box pixels that are flagged |
 | `precision`, `f1_score` | Per-slice localisation quality metrics |
 
-Results are saved to `results_v4_zscore.json` (one entry per slice) plus per-slice PNG figures.
+Results saved to `results_v4_zscore.json` (one entry per slice) plus per-slice PNG figures.
 
-### Annotation box evaluation
+### Annotation Box Evaluation
 
-The inference script supports bounding-box evaluation directly:
-- Loads annotation boxes from `--annotation-csv` (columns: file, slice, x, y, width, height, label, study_level, base_size)
-- Computes `compute_bbox_detection_metrics` per slice: TP if predicted mask covers ≥10% of GT box area
-- FP ratio = predicted pixels outside healthy region / predicted pixels inside GT box
-- Precision = TP / (TP + FP_ratio); F1 = 2P / (P+1) for TP=1
+| Feature | Description |
+|:--------|:------------|
+| **Input** | `--annotation-csv` with columns: `file, slice, x, y, width, height, label, study_level, base_size` |
+| **TP Criterion** | Predicted mask covers ≥10% of GT box area |
+| **FP Ratio** | Predicted pixels outside healthy region / predicted pixels inside GT box |
+| **Precision** | `TP / (TP + FP_ratio)` |
+| **F1** | `2P / (P+1)` for `TP=1` |
 
-Three preprocessing modes handle coordinate system differences:
-- `legacy`: direct scale from base_size to image size
-- `render_fastmri`: y-axis flipped (FastMRI renders top-down)
-- `mask_pipeline`: rasterise box as binary mask then resize with nearest-neighbour
+#### Preprocessing Modes
+
+| Mode | Use Case |
+|:-----|:---------|
+| `legacy` | Direct scale from `base_size` to image size |
+| `render_fastmri` | Y-axis flipped (FastMRI renders top-down) |
+| `mask_pipeline` | Rasterise box as binary mask, resize with nearest-neighbour |
 
 ---
 
-## Evaluation — ROC Curves and Detection Metrics (`FastMRI_ROC_Curve_Calculations.py`)
+## Evaluation
+
+### ROC Curves and Detection Metrics
 
 ```bash
 python FastMRI_ROC_Curve_Calculations.py \
@@ -435,171 +655,146 @@ python FastMRI_ROC_Curve_Calculations.py \
     [--case-folder "patient_abc"]
 ```
 
-**Patient-level aggregation:** Slice-level `clamped_pixel_sum` values are summed per patient (derived from filename stem before `_slice_`). Patient is flagged anomalous if the total exceeds a threshold.
+#### Patient-Level Aggregation
 
-**FP pixel ratio:** Computed over slices without any GT bounding box: `highlighted_pixels / (num_no_bbox_slices × 256 × 256) × 100`.
+Slice-level `clamped_pixel_sum` values are **summed per patient** (derived from filename stem before `_slice_`). Patient is flagged anomalous if the total exceeds a threshold.
 
-**Localisation metrics from paper:**
-- `compute_paper_precision_f1(tp_detected, inside_pixels, outside_pixels)`: reproduces the exact FP ratio, precision, and F1 formulation used in the paper
+#### Metrics
 
-**Category filtering:** `--category` performs substring matching on the `category` field in the JSON. `--case-folder` filters by patient folder name.
+| Metric | Description |
+|:-------|:------------|
+| **FP Pixel Ratio** | Over slices without GT bbox: `highlighted_pixels / (num_no_bbox_slices × 256 × 256) × 100` |
+| **Paper Precision/F1** | `compute_paper_precision_f1(tp_detected, inside_pixels, outside_pixels)` — exact formulation from paper |
+
+#### Filtering
+
+| Flag | Behavior |
+|:-----|:---------|
+| `--category` | Substring matching on JSON `category` field |
+| `--case-folder` | Filter by patient folder name |
 
 ---
 
-## Key Differences vs. the Pelvic MRI Version
+## Key Differences vs. Pelvic MRI
 
 | Aspect | Brain MRI (FastMRI/IXI) | Pelvic MRI (LUND-PROBE) |
-|--------|------------------------|------------------------|
-| Dataset | FastMRI T1 + IXI T1 | LUND-PROBE T2 pelvis |
-| Codebook size | **256** per level | 192 per level |
-| Augmentation | Rich: noise(p=0.5, std=0.30), contrast, zoom | Minimal: intensity+affine only |
-| RoPE | **2D** (row, col) | 3D (row, col, slice) |
-| Perceptual weight | 0.5 | 0.9 |
-| LR | 2e-4 | 1e-4 |
-| Slice filtering | None (all slices from data dirs) | Training slices 30–60 only |
-| Evaluation | Bounding-box TP/FP/F1 per slice | Patient-level ROC by category |
-| File format | `.npz` (key `arr`) | `.npy` |
-| Calibration data | FastMRI "Normal" annotated slices | Healthy LUND-PROBE volunteers |
+|:-------|:------------------------|:------------------------|
+| **Dataset** | FastMRI T1 + IXI T1 | LUND-PROBE T2 pelvis |
+| **Codebook size** | **256** per level | 192 per level |
+| **Augmentation** | Rich: noise(p=0.5, std=0.30), contrast, zoom | Minimal: intensity+affine only |
+| **RoPE** | **2D** (row, col) | 3D (row, col, slice) |
+| **Perceptual weight** | 0.5 | 0.9 |
+| **Learning rate** | 2e-4 | 1e-4 |
+| **Slice filtering** | None (all slices from data dirs) | Training slices 30–60 only |
+| **Evaluation** | Bounding-box TP/FP/F1 per slice | Patient-level ROC by category |
+| **File format** | `.npz` (key `arr`) | `.npy` |
+| **Calibration data** | FastMRI "Normal" annotated slices | Healthy LUND-PROBE volunteers |
 
 ---
 
 ## Exact Replication Checklist
 
-- [ ] IXI T1 volumes pre-processed with `IXI_dataset_overview_collection.py`, slices 128–188, z-clip [−3,3], 256×256 crop, 90° CCW rotation, saved as `.npz`
-- [ ] Stage 1 trained 100 epochs, batch=192, lr=2e-4, embed_dim=256, codebook_size=256, perceptual_weight=0.5, full augmentation suite enabled
-- [ ] Stage 2 trained 100 epochs, batch=158, lr=2e-4, embed_dim=256, codebook_size=256 both levels, 2000-step LR warmup, Stage 1 frozen
-- [ ] Calibration run on "Normal" FastMRI slices with smoothing_kernel=15, heal_patterns=[0,1]
-- [ ] Inference uses identical smoothing_kernel=15, z_threshold=2.0, num_iterations=3, heal_steps=12, heal_temperature=0.8, inpaint_steps=12, inpaint_temperature=0.9, token_surprisal_samples=50, mask_ratio=0.15
+- [ ] IXI T1 volumes pre-processed with `IXI_dataset_overview_collection.py`, slices 128–188, z-clip `[−3,3]`, `256×256` crop, 90° CCW rotation, saved as `.npz`
+- [ ] Stage 1 trained 100 epochs, batch=192, lr=2e-4, `embed_dim=256`, `codebook_size=256`, `perceptual_weight=0.5`, full augmentation suite enabled
+- [ ] Stage 2 trained 100 epochs, batch=158, lr=2e-4, `embed_dim=256`, `codebook_size=256` both levels, 2000-step LR warmup, Stage 1 frozen
+- [ ] Calibration run on "Normal" FastMRI slices with `smoothing_kernel=15`, `heal_patterns=[0,1]`
+- [ ] Inference uses identical `smoothing_kernel=15`, `z_threshold=2.0`, `num_iterations=3`, `heal_steps=12`, `heal_temperature=0.8`, `inpaint_steps=12`, `inpaint_temperature=0.9`, `token_surprisal_samples=50`, `mask_ratio=0.15`
 - [ ] Annotation boxes loaded from `brain.csv` with the appropriate `--annotation-preprocess-mode`
 - [ ] Patient-level scores aggregated from `clamped_pixel_sum` over all evaluated slices
 - [ ] ROC curves generated with `FastMRI_ROC_Curve_Calculations.py` per anomaly category
 
 ---
 
-## Code Audit Addendum (README update)
+## Code Audit Addendum
 
-This section was added after cross-checking the repository code against the original README so readers do not miss implementation details that affect interpretation and reproducibility.
+> This section documents implementation details discovered during code inspection that affect interpretation and reproducibility.
 
-### What is actively used at runtime vs. what is reference material
+### What Is Actively Used vs. Reference Material
 
-- `Train_frameworks.py`, `FastMRI_model_stage1.py`, `FastMRI_model_stage2.py`, `FastMRI_Inference.py`, `IXI_dataset_overview_collection.py`, and `FastMRI_ROC_Curve_Calculations.py` are the main active workflow scripts.
-- `config.yaml.yaml` is a **reference/config summary**, but the main scripts inspected here do **not** automatically load it at runtime.
-- Several important training and inference settings are defined directly inside Python scripts and CLI defaults rather than being read from YAML.
+| Status | Files |
+|:-------|:------|
+| **Active workflow scripts** | `Train_frameworks.py`, `FastMRI_model_stage1.py`, `FastMRI_model_stage2.py`, `FastMRI_Inference.py`, `IXI_dataset_overview_collection.py`, `FastMRI_ROC_Curve_Calculations.py` |
+| **Reference/config summary** | `config.yaml.yaml` — **not automatically loaded at runtime** |
 
-### Important implementation clarifications
+### Important Implementation Clarifications
 
-#### 1. The primary FastMRI anomaly heatmap is reconstruction-referenced
+#### 1. Primary Anomaly Heatmap Is Reconstruction-Referenced
 
-This is the most important clarification for readers.
+> ⚠️ **This is the most important clarification for readers.**
 
-In the currently inspected brain pipeline:
+| Stage | Reference |
+|:------|:----------|
+| Calibration | `LPIPS(reconstruction, healed)` |
+| Inference Iteration 0 | `LPIPS(reconstruction, healed)` |
+| Refinement Iterations | `LPIPS(reconstruction, inpainted)` |
 
-- calibration uses **LPIPS(reconstruction, healed)**
-- inference iteration 0 uses **LPIPS(reconstruction, healed)**
-- refinement iterations use **LPIPS(reconstruction, inpainted)**
+The main anomaly heatmap is referenced to the **Stage 1 reconstruction**, not directly to the original input image. The script computes `lpips_input_recon` for auxiliary analysis only.
 
-So the main anomaly heatmap is referenced to the **Stage 1 reconstruction**, not directly to the original input image.
+#### 2. `config.yaml.yaml` Is Not the Active Runtime Controller
 
-The script still computes `lpips_input_recon`, but that is mainly used for auxiliary analysis/visualization outputs rather than as the primary iterative heatmap signal.
+The YAML documents intended settings well, but active behavior is defined directly in scripts:
 
-This differs conceptually from the pelvic README framing and should be kept in mind when interpreting results.
+- `Train_frameworks.py` defines CLI defaults for paths, batch size, LR, etc.
+- `FastMRI_Inference.py` defines inference defaults directly
+- YAML is best understood as a **structured record/reference**, not the sole source of truth
 
-#### 2. `config.yaml.yaml` is not the active runtime controller
-
-Although the YAML file documents the intended settings well, the currently inspected scripts define the active behavior directly.
-
-Examples:
-
-- `Train_frameworks.py` defines its own CLI defaults for paths, batch size, LR, checkpoint loading, WandB, etc.
-- `FastMRI_Inference.py` defines its own inference defaults directly
-- the YAML is therefore best understood as a structured record/reference, not the sole runtime source of truth
-
-#### 3. Training depends on a shared/external dataset module
-
-`Train_frameworks.py` imports:
+#### 3. Training Depends on a Shared/External Dataset Module
 
 ```python
-from dataset import SliceDataModule
+from dataset import SliceDataModule  # Lives OUTSIDE this folder
 ```
 
-but there is no `dataset.py` file inside `Final_Code_Phiro_Brain_MRI/`.
+Ensure `dataset.py` is available in your Python path.
 
-So readers should know that the brain training workflow depends on a dataset module that lives outside this folder, likely shared across the broader project environment.
+#### 4. Inference Dataloader Is More Flexible Than Originally Documented
 
-#### 4. Inference dataloader is more flexible than the README originally emphasizes
+`create_inference_dataloader(...)` supports:
+- Recursive search for `.npz` and `.npy`
+- Filtering by `category_filter`, `case_filter`, `patient_filter`
+- `case_folder` set from immediate parent directory
 
-`create_inference_dataloader(...)` currently:
+Suitable for both native FastMRI `.npz` and external `.npy` datasets.
 
-- searches recursively
-- supports both `.npz` and `.npy`
-- filters by filename substring through:
-  - `category_filter`
-  - `case_filter`
-  - `patient_filter`
-- sets `case_folder` from the immediate parent directory through metadata construction
+#### 5. Calibration Mode Writes an Input Audit Log
 
-This makes the inference pipeline suitable for both native FastMRI-style `.npz` inputs and external `.npy` slice datasets.
+During calibration, `calibration_input_files.txt` is written recording exact selected files and active filters. **Retain this for reproducibility.**
 
-#### 5. Calibration mode writes an input audit log
+#### 6. Script Defaults May Differ from Recommended Settings
 
-During calibration, the script writes:
+Current defaults in `FastMRI_Inference.py` (not the same as README examples):
 
-- `calibration_input_files.txt`
+| Parameter | Default |
+|:----------|:--------|
+| `--z-threshold` | `"(-2.5, 6.0)"` (two-sided) |
+| `--smoothing-kernel` | `7` |
+| `--num-iterations` | `1` |
+| `--inter-iteration-dilation` | `1` |
+| `--heal-steps` | `6` |
+| `--heal-temperature` | `0.9` |
+| `--heal-patterns` | `"4"` |
+| `--token-surprisal-samples` | `100` |
+| `--token-surprisal-mask-ratio` | `0.820` |
 
-This file records the exact selected calibration files and active filters. It is a very useful reproducibility artifact and should be retained with experiments.
+#### 7. Annotation/Evaluation Behavior Is Richer Than Simple Bbox Overlay
 
-#### 6. Script defaults may differ from the recommended/paper-like settings shown in examples
+| Feature | Controls |
+|:--------|:---------|
+| Preprocessing modes | `legacy`, `render_fastmri`, `mask_pipeline` |
+| Annotation flips | `--annotation-flip-vertical`, `--annotation-flip-horizontal` |
+| Batch inference | `--run-all-anomaly-folders` |
+| Fusion controls | LPIPS backflow / binary-token fusion |
+| Mask refinement | Edge-aware erosion controls |
+| Visualization | Optional heatmap-ideas figure generation |
 
-The README examples are useful, but readers should distinguish them from the script defaults.
+#### 8. Token Surprisal: Token-Space → Image-Space
 
-Examples of current defaults in `FastMRI_Inference.py` include:
+The token surprisal map originates in token space but is **resized to image resolution** before downstream operations and visualizations.
 
-- `--z-threshold "(-2.5 , 6.0)"` for two-sided thresholding
-- `--smoothing-kernel 7`
-- `--num-iterations 1`
-- `--inter-iteration-dilation 1`
-- `--heal-steps 6`
-- `--heal-temperature 0.9`
-- `--heal-patterns "4"`
-- `--token-surprisal-samples 100`
-- `--token-surprisal-mask-ratio 0.820`
+### Practical Reproducibility Notes
 
-These are not the same as the simpler example configuration shown earlier in the README.
-
-#### 7. Annotation/evaluation behavior is richer than a simple bbox overlay
-
-The inference script contains several evaluation-focused controls that are worth surfacing explicitly:
-
-- three annotation preprocessing modes:
-  - `legacy`
-  - `render_fastmri`
-  - `mask_pipeline`
-- optional annotation flips:
-  - `--annotation-flip-vertical`
-  - `--annotation-flip-horizontal`
-- optional batch inference over all anomaly label folders with `--run-all-anomaly-folders`
-- LPIPS backflow / binary-token fusion controls
-- edge-aware erosion controls for binary masks
-- optional heatmap-ideas figure generation
-
-These are important for reproducing figure-generation and evaluation behavior.
-
-#### 8. Token surprisal exists in both token-space and image-space forms in the workflow
-
-The token surprisal map is computed from token-level Monte Carlo masking, but it is resized to image resolution before several downstream operations and visualizations.
-
-So readers should interpret it as:
-
-- originating in token space
-- but often used in image space after interpolation
-
-### Practical reproducibility notes for readers
-
-- Many defaults point to absolute local paths and should usually be overridden.
-- If exact reproducibility matters, keep both:
-  - the CLI command used
-  - the generated `calibration_input_files.txt`
-- Do not assume the YAML file alone reproduces the run; the active CLI/Python defaults matter.
-- When interpreting FastMRI anomaly maps, remember that the main LPIPS branch is **reconstruction-vs-healed**, not input-vs-healed.
-
-
+- Many defaults point to absolute local paths — **override them**.
+- For exact reproducibility, keep both:
+  - The CLI command used
+  - The generated `calibration_input_files.txt`
+- **Do not assume the YAML alone reproduces the run**; active CLI/Python defaults matter.
+- When interpreting FastMRI anomaly maps, remember the main LPIPS branch is **reconstruction-vs-healed**, not input-vs-healed.
