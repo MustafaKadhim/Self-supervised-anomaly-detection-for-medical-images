@@ -1,4 +1,4 @@
-# Two-Stage Anomaly Detection Framework for Pelvic MRI (LUND-PROBE)
+# Two-Stage Anomaly Detection Framework for Pelvic MRI Experiments
 
 ### Core Idea
 
