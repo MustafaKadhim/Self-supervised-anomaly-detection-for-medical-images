@@ -693,13 +693,3 @@ evaluate_threshold_on_patient_scores(patient_scores, threshold=1019.0)
 - [PyTorch Lightning](https://lightning.ai/) — Training framework
 
 
-
-
-### Code simplification note
-
-To make the framework easier for new visitors, the anomaly-scoring path is now explicitly highlighted in:
-- `Model_Stage_1.py` (tokenization/reconstruction pieces used by Stage 2),
-- `Model_Stage_2.py` (Binary token surprisal scoring path),
-- `Inference_Pelvis_Experiments.py` (dedicated inference/analysis script).
-
-Research utilities that are available but not part of the main ROC pipeline are retained under `available yet not used` section headers instead of being deleted.
