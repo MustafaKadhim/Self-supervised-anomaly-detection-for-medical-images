@@ -1,6 +1,6 @@
-# 🧠 Two-Stage Anomaly Detection for Brain MRI **(fastMRI/fastMRI+/IXI)**
+# 🧠 Two-Stage Anomaly Detection for Brain MRI
 
-Unsupervised anomaly detection framework for T1-weighted brain MRI, adapted from the LUND-PROBE pelvic pipeline. The model trains exclusively on healthy subjects and detects anomalies at inference time by measuring divergence from the learned distribution. Ground truth is never used during training.
+Unsupervised anomaly detection framework for T1-weighted brain MRI, adapted from the pelvic pipeline. The model trains exclusively on healthy subjects and detects anomalies at inference time by measuring divergence from the learned distribution. Datasets used are **(fastMRI/fastMRI+/IXI)**.
 
 ---
 
