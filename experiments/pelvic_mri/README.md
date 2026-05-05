@@ -599,7 +599,7 @@ DEFAULT_ROC_INPUT_PATHS = [
 | `aggregate_patient_status` | `combined_score > threshold` | Votes by number of flagged slices exceeding threshold |
 
 
-### Running ROC Evaluation
+### 📊 Running ROC-analysis 
 
 ```bash
 python ROC_Curves_Calculations.py \
@@ -608,166 +608,61 @@ python ROC_Curves_Calculations.py \
     --categories all
 ```
 
----
+#### Step 2: Compute ROC, AUC, and CI-bands
 
+```python
+compute_fastmri_roc_and_auc(
+    patient_scores=merged_patient_scores,
+    expected_test_normals=30,           # Sanity check: expected # of test normals
+    bootstrap_samples=2000,             # For confidence intervals
+    confidence_level=0.95,
+    bootstrap_random_seed=42,
+    ci_fpr_grid_size=201,               # Grid resolution for CI band
+)
+```
 
-
----
-
-## Output Files and Directories
-
-| Path | Description |
-|------|-------------|
-| `RQC_ValExamples/` | Per-epoch validation reconstructions and codebook index maps |
-| `RQC_ValExamples/augmentations_preview.png` | First-batch augmentation sanity check (4 samples × 3 augmented versions) |
-| `lightningCheckpoints_Modified/` | PyTorch Lightning checkpoints (top-3 by `val/loss`) |
-| `logs/<stage>/` | CSVLogger training curves (loss, accuracy, baseline, lift, codebook utilisation) |
-| `<output-dir>/results_v4_zscore.json` | Per-slice inference results (all scalar metrics) |
-| `<output-dir>/figures/` | Per-slice visualisation grids: input, reconstruction, healed, healed-TTA, heatmap, Z-score map, mask, inpainted, token surprisal |
-| `<calibration>.npz` | Z-score calibration maps (μ, σ, per-slice stats, n_samples, smoothing_kernel) |
-| `<calibration>_visualization.png` | Six-panel calibration visualisation (μ, σ, μ/σ ratio, histograms, FP-prone regions) |
-
----
-
-## Exact Replication Checklist
-
-To exactly replicate the published experiments:
-
-1. **Environment:** Install all packages from `LUNDPROBE_requirements.txt` (CUDA 12.8, PyTorch 2.8.0+cu128).
-2. **Data:** Pre-slice healthy pelvic MRI volumes with `preslice_volumes.py` (z-score per volume, all axial slices, naming: `{patient_id}_slice_{idx:03d}.npy`).
-3. **Patient splits:** Use `Train_Val_Test_Exact_DataSplits_LUND_PROBE.json` to assign 384 patients to the training set.
-4. **Stage 1:** Train with `embed_dim=256, codebook_size=192, num_quantizers=2, patch_size=8, perceptual_weight=0.9, commitment_cost=0.25, lr=1e-4, 100 epochs, batch=128, gradient_clip=1.0`.
-5. **Stage 2:** Load Stage 1 from step 4; train with `embed_dim=256, depth=8, num_heads=8, l2_loss_weight=0.25, q_error_weight=0.1, label_smoothing=0.05, warmup_steps=2000, lr=1e-4, weight_decay=0.01, 100 epochs, batch=128, slice_min=30, slice_max=60`.
-6. **Calibration:** Run on a held-out set of healthy volunteers with `smoothing_kernel=15, heal_steps=12, temperature=0.8, heal_patterns=[0,1], use_tta=True, use_per_slice_stats=True, heatmap_aggregation=mean`.
-7. **Inference:** Run with calibration from step 6; use `z_threshold=2.0, num_iterations=3, heal_steps=12, heal_temperature=0.8, heal_patterns=[0,1], inpaint_steps=12, inpaint_temperature=0.9, token_surprisal_samples=50, token_surprisal_mask_ratio=0.15, token_surprisal_clamp=5.0, smoothing_kernel=15, use_tta=True`.
-8. **Evaluation:** Aggregate slice scores over slices 38–49 per patient and compute ROC with `ROC_Curves_Calculations.py`.
+Outputs:
+- `sensitivity` = TP / (TP + FN)
+- `specificity` = TN / (TN + FP)
+- `FPR` = 1-specificity 
+- `auc_mean`, `auc_std`, `auc_ci_lower`, `auc_ci_upper`
+- `tpr_ci_lower`, `tpr_ci_upper`, `tpr_median` at each false-positive ratio (FPR) point
 
 ---
 
-## Practical Notes
+### Threshold Selection Strategies (Optional)
 
-- `train.py` sets `devices=[1]`. Update `make_trainer` if your GPU index differs.
-- `preslice_volumes.py` imports `dictConfig` from a local `config` module. Supply that module or edit the `SOURCE_GLOB` variable directly.
-- Many default paths in the inference and ROC scripts point to absolute local directories. Pass CLI arguments explicitly in a different environment.
-- Stage 2 uses `torch.backends.cuda.enable_flash_sdp(True)` at import time; Flash Attention is used automatically when available.
-- The 90° CCW rotation in `dataset.py` (`np.rot90(arr, k=-1)`) is applied at every data load. Ensure your NIfTI volumes are oriented so that the axial plane is the third axis (`vol[:, :, slice_idx]`).
+#### 1. Best Threshold by Youden's J Index
+
+```python
+best_threshold = max(roc_points, key=lambda p: p["youden_j"])
+# youden_j = sensitivity - fpr
+```
+
+#### 2. Fixed FPR Threshold
+
+```python
+select_threshold_for_target_fpr(roc_metrics, target_fpr=0.20)
+# Returns threshold with highest sensitivity where FPR <= target_fpr
+```
+
+#### 3. Fixed Threshold Evaluation
+
+```python
+evaluate_threshold_on_patient_scores(patient_scores, threshold=1019.0)
+# Evaluates the specific threshold used during inference
+```
+
 
 ---
 
-## Citation
-
-If you use this code, please cite our work. BibTeX entry to be added upon publication.
-
----
 
 ## Acknowledgements
 
-- [vector-quantize-pytorch](https://github.com/lucidrains/vector-quantize-pytorch) — ResidualVQ implementation.
-- [MONAI](https://monai.io/) — Medical imaging transforms and data utilities.
-- [BiomedCLIP](https://huggingface.co/microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224) — Domain-adapted perceptual loss during Stage 1 training.
-- [lpips](https://github.com/richzhang/PerceptualSimilarity) — Spatial LPIPS used in the inference heatmap.
-- [PyTorch Lightning](https://lightning.ai/) — Training framework.
+- [vector-quantize-pytorch](https://github.com/lucidrains/vector-quantize-pytorch) — ResidualVQ implementation
+- [MONAI](https://monai.io/) — Medical imaging transforms and data utilities
+- [BiomedCLIP](https://huggingface.co/microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224) — Domain-adapted perceptual loss during Stage 1 training
+- [lpips](https://github.com/richzhang/PerceptualSimilarity) — Spatial LPIPS used in the inference heatmap
+- [PyTorch Lightning](https://lightning.ai/) — Training framework
 
----
 
-## Code Audit Addendum (README update)
-
-This section was added after cross-checking the repository code against the original README so readers do not miss implementation details that affect reproducibility.
-
-### What is actively used at runtime vs. what is reference material
-
-- `train.py`, `dataset.py`, `Inference_LUNDPROBE_final.py`, `External_dataset.py`, and `ROC_Curves_Calculations.py` are the main active workflow scripts.
-- `config_yaml.yaml` is a **central reference/config record**, but the main scripts inspected here do **not** load it automatically at runtime. In practice, many important settings are defined directly in Python defaults or hard-coded in the scripts.
-- The exact split manifest `Train_Val_Test_Exact_DataSplits_LUND_PROBE.json` is included for documentation/reproducibility, but the current `SliceDataModule` implementation in `dataset.py` does **not** consume this JSON directly.
-
-### Important implementation clarifications
-
-#### 1. Train/validation split behavior in `dataset.py`
-
-The original README describes the exact paper split file and optional JSON-based splitting. In the currently inspected code:
-
-- `SliceDataModule.setup()` scans `data_dir` for `*.npy`
-- keeps only filenames containing `_slice_`
-- filters out unreadable / empty / invalid arrays
-- performs a **random 90/10 train/val split**
-- uses `torch.Generator().manual_seed(42)` for reproducibility
-
-So readers should understand that the current datamodule uses an **internal random split**, not the JSON manifest.
-
-#### 2. `config_yaml.yaml` is not the active source of truth
-
-Although `config_yaml.yaml` documents the intended workflow settings very well, the current code paths inspected here do not parse it automatically. Examples:
-
-- `train.py` defines CLI defaults directly
-- `train.py` hardcodes key Stage 1 values when instantiating the model (`embed_dim=256`, `codebook_size=192`, `commitment_cost=0.25`)
-- `Inference_LUNDPROBE_final.py` defines its own CLI defaults directly
-
-For exact replication, the **Python script defaults / arguments actually passed at runtime** are what matter most.
-
-#### 3. Calibration CLI documentation vs. actual CLI
-
-The original README example includes flags such as:
-
-- `--calibration-output`
-- `--use-per-slice-stats`
-
-These are **not exposed as CLI arguments** in the inspected `Inference_LUNDPROBE_final.py`.
-
-Current behavior:
-
-- calibration output is written inside `--output-dir` as `zscore_calibration.npz`
-- per-slice calibration statistics are computed inside `run_calibration(...)` rather than being toggled through a documented CLI flag in the current script
-
-#### 4. Paper/recommended settings vs. script defaults
-
-Some documented settings reflect the intended/paper workflow, but the current CLI defaults in `Inference_LUNDPROBE_final.py` differ and should not be confused with the paper configuration.
-
-Examples of current defaults in the script:
-
-- `--num-iterations 1`
-- `--heal-steps 6`
-- `--heal-temperature 0.3`
-- `--heal-patterns "2,3"`
-- `--token-surprisal-mask-ratio 0.90`
-
-These differ from the paper-like settings documented elsewhere in the README, such as 12 healing steps, temperature 0.8, checkerboard patterns `[0,1]`, and multi-iteration inference.
-
-**Recommendation for readers:** treat the README “exact replication” values as the intended experimental settings, and treat the raw script defaults as local working defaults unless explicitly overridden.
-
-#### 5. Stage 2 training slice filtering is path-dependent
-
-`FactorizedMaskGIT.training_step()` extracts slice indices from file paths and then applies `_filter_training_slices(...)` with the configured range `[30, 60]`.
-
-This means:
-
-- filenames must encode slice position in the form `..._slice_<idx>...`
-- slice filtering happens **during Stage 2 training**, after the batch is loaded
-- if no slices in a batch remain after filtering, the batch is skipped
-
-This naming dependency is important for custom datasets.
-
-#### 6. External preprocessing defaults are narrower than the generic training slice handling
-
-`External_dataset.py` currently defaults to:
-
-- `slice_range=(38, 50)` in `process_external_dataset(...)`
-- naming outputs as `{category}_{case_folder}_{volume_name}_slice_{idx:03d}.npy`
-
-This is particularly relevant because downstream inference / ROC grouping depends on the encoded filename metadata.
-
-### Practical reproducibility notes for readers
-
-- Many default paths in `train.py`, `Inference_LUNDPROBE_final.py`, and `ROC_Curves_Calculations.py` are absolute local paths and must usually be overridden.
-- If you want the workflow to match the documented paper configuration, do **not** assume the current script defaults are already correct.
-- If you want the JSON split to be enforced, that requires additional code support beyond the currently inspected datamodule.
-- `config_yaml.yaml` is best understood as a structured reference of intended settings, not an automatically consumed experiment config.
-
----
-
-## Acknowledgements
-
-- [vector-quantize-pytorch](https://github.com/lucidrains/vector-quantize-pytorch) — ResidualVQ implementation.
-- [MONAI](https://monai.io/) — Medical imaging transforms and data utilities.
-- [BiomedCLIP](https://huggingface.co/microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224) — Domain-adapted perceptual loss during Stage 1 training.
-- [lpips](https://github.com/richzhang/PerceptualSimilarity) — Spatial LPIPS used in the inference heatmap.
-- [PyTorch Lightning](https://lightning.ai/) — Training framework.
