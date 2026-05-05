@@ -45,6 +45,7 @@ Final_Code_Phiro_Brain_MRI/
 ├── 📄 collect_normal_slices.py           # Filter normal slices from annotation CSVs
 ├── 📄 Render_patient_slices_from_csv.py  # Render/export slices from CSV or label folders
 ├── 📄 dataset.py                         # Shared dataset utilities (external dependency)
+├── 📄 Train_Val_Test_Anom_Exact_DataSplits_Brain.json # Data splits 
 └── 📄 config.yaml.yaml                   # Centralised configuration reference
 ```
 
