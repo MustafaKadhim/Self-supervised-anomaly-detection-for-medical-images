@@ -557,19 +557,7 @@ python FastMRI_Inference.py \
 | `precision`, `f1_score`      | Per-slice localisation quality metrics (optional) |
 | `sharpness_score`            | Laplacian variance as motion/blur artifact proxy (optional) |
 
-Results saved to `results_v4_zscore.json` (one entry per slice) plus per-slice detailed PNG figures with analysis.
-
-### Annotation Box Evaluation (Optional: in case you want to investigate the overlap of your anomaly heatmaps with bounding boxes for analysis)
-
-| Feature | Description |
-|:--------|:------------|
-| **Input** | `--annotation-csv` with columns: `file, slice, x, y, width, height, label, study_level, base_size` |
-| **TP Criterion** | Predicted mask covers ≥10% of GT box area |
-| **FP Ratio** | Predicted pixels outside healthy region / predicted pixels inside GT box |
-| **Precision** | `TP / (TP + FP_ratio)` |
-| **F1** | `2P / (P+1)` for `TP=1` |
-
----
+Results saved to `results_v4_zscore.json` (one entry per slice) plus per-slice detailed PNG figures with analysis. The JSON file contains many score details that might be of interest for you, and can also be used for ROC-analysis below.  
 
 ## Evaluation
 
@@ -583,42 +571,20 @@ python FastMRI_ROC_Curve_Calculations.py \
     [--case-folder "patient_abc"]
 ```
 
-#### Patient-Level Aggregation
 
-Slice-level `clamped_pixel_sum` values are **summed per patient** (derived from filename stem before `_slice_`). Patient is flagged anomalous if the total exceeds a threshold.
 
-#### Metrics
 
-| Metric | Description |
-|:-------|:------------|
-| **FP Pixel Ratio** | Over slices without GT bbox: `highlighted_pixels / (num_no_bbox_slices × 256 × 256) × 100` |
-| **Paper Precision/F1** | `compute_paper_precision_f1(tp_detected, inside_pixels, outside_pixels)` — exact formulation from paper |
+### Annotation Box Evaluation (Optional)
+`I have included this option in case you want to investigate the overlap of your anomaly heatmaps with any available bounding boxes)`
 
-#### Filtering
+| Feature | Description |
+|:--------|:------------|
+| **Input** | `--annotation-csv` with columns: `file, slice, x, y, width, height, label, study_level, base_size` |
+| **TP Criterion** | Predicted mask covers ≥10% of GT box area |
+| **FP Ratio** | Predicted pixels outside healthy region / predicted pixels inside GT box |
+| **Precision** | `TP / (TP + FP_ratio)` |
+| **F1** | `2P / (P+1)` for `TP=1` |
 
-| Flag | Behavior |
-|:-----|:---------|
-| `--category` | Substring matching on JSON `category` field |
-| `--case-folder` | Filter by patient folder name |
-
----
-
-## Key Differences vs. Pelvic MRI
-
-| Aspect | Brain MRI (FastMRI/IXI) | Pelvic MRI (LUND-PROBE) |
-|:-------|:------------------------|:------------------------|
-| **Dataset** | FastMRI T1 + IXI T1 | LUND-PROBE T2 pelvis |
-| **Codebook size** | **256** per level | 192 per level |
-| **Augmentation** | Rich: noise(p=0.5, std=0.30), contrast, zoom | Minimal: intensity+affine only |
-| **RoPE** | **2D** (row, col) | 3D (row, col, slice) |
-| **Perceptual weight** | 0.5 | 0.9 |
-| **Learning rate** | 2e-4 | 1e-4 |
-| **Slice filtering** | None (all slices from data dirs) | Training slices 30–60 only |
-| **Evaluation** | Bounding-box TP/FP/F1 per slice | Patient-level ROC by category |
-| **File format** | `.npz` (key `arr`) | `.npy` |
-| **Calibration data** | FastMRI "Normal" annotated slices | Healthy LUND-PROBE volunteers |
-
----
 
 ## Exact Replication Checklist
 
@@ -703,26 +669,3 @@ Current defaults in `FastMRI_Inference.py` (not the same as README examples):
 | `--token-surprisal-samples` | `100` |
 | `--token-surprisal-mask-ratio` | `0.820` |
 
-#### 7. Annotation/Evaluation Behavior Is Richer Than Simple Bbox Overlay
-
-| Feature | Controls |
-|:--------|:---------|
-| Preprocessing modes | `legacy`, `render_fastmri`, `mask_pipeline` |
-| Annotation flips | `--annotation-flip-vertical`, `--annotation-flip-horizontal` |
-| Batch inference | `--run-all-anomaly-folders` |
-| Fusion controls | LPIPS backflow / binary-token fusion |
-| Mask refinement | Edge-aware erosion controls |
-| Visualization | Optional heatmap-ideas figure generation |
-
-#### 8. Token Surprisal: Token-Space → Image-Space
-
-The token surprisal map originates in token space but is **resized to image resolution** before downstream operations and visualizations.
-
-### Practical Reproducibility Notes
-
-- Many defaults point to absolute local paths — **override them**.
-- For exact reproducibility, keep both:
-  - The CLI command used
-  - The generated `calibration_input_files.txt`
-- **Do not assume the YAML alone reproduces the run**; active CLI/Python defaults matter.
-- When interpreting FastMRI anomaly maps, remember the main LPIPS branch is **reconstruction-vs-healed**, not input-vs-healed.
