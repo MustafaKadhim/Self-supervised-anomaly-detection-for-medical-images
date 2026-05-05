@@ -305,7 +305,7 @@ python collect_normal_slices.py \
 A slice is classified as normal if:
 - `study_level == "yes"`, **or**
 - label contains the `--normal-label-keyword`, **or**
-- it has no annotation at all
+- it has no annotation at all (according to the official fastMRI+ guidelines). 
 
 ### Rendering Patient Slices
 
@@ -331,12 +331,12 @@ label/
     └── patient_xxx_slice_003.png
 ```
 
-#### Example: Best Slice per Patient for One Label
+#### Example: Best Slice per Patient for a Selected Label "Mass"
 
 ```bash
 python Render_patient_slices_from_csv.py \
     --label-root /path/to/FastMRI_Local_Anomalies_ByLabel \
-    --include-label "Intraventricular substance" \
+    --include-label "Mass" \
     --best-box-only \
     --data-root /path/to/fastMRI_h5_root \
     --series-type AXT1 \
@@ -344,8 +344,6 @@ python Render_patient_slices_from_csv.py \
     --output-npy-dir /path/to/rendered_npz \
     --annotation-csv /path/to/Annotated_fastMRI_Brains_Detailed.csv
 ```
-
-> **Note:** IXI training slices are written directly from NIfTI volumes, whereas FastMRI slices for anomaly review are generated from `.h5` reconstructions with additional flip/resize steps.
 
 ### Building Anomaly Label Folders
 
@@ -364,7 +362,7 @@ python build_patient_Global_label_folders.py \
 - `Possible artifact`
 - `Colpocephaly`
 - `Extra-axial collection`
-- `Global label: Small vessel chronic white matter ischemic change`
+- `Global label: Small vessel chronic white matter ischemic change` ***Excluded in this study***
 
 #### Local Labels (Per-Slice Pathologies)
 
@@ -397,7 +395,7 @@ The `category` field defaults to `"FastMRI"`. Use `--category "Mass"` to tag all
 
 ## Training
 
-### Stage 1
+### Stage 1 Training
 
 ```bash
 python Train_frameworks.py --stage1 \
@@ -428,17 +426,17 @@ python Train_frameworks.py --stage1 \
 
 Checkpoints saved to `FastMRI_IXI_Augmented_lightningCheckpoints/` as `FastMRI_stage1-{epoch:03d}-{val/loss:.4f}.ckpt`. Top-3 by `val/loss` are kept.
 
-#### Fine-Tuning from Existing Checkpoint
-
+#### Fine-Tuning from Existing Checkpoint 
+This could be powerful in case you work with very limited dataset samples and want the model to learn quickly. You can use your previous checkpoints instead of starting from scratch! (⚠️ make sure to have the same model design)  
 ```bash
 python Train_frameworks.py --stage1 \
     --pretrained-stage1-ckpt /path/to/previous_stage1.ckpt \
     [... other args ...]
 ```
 
-Loaded with `strict=False`; augmentations are disabled during fine-tuning (`use_augmentations=False`).
+Loaded with `strict=False`; augmentations are then disabled during fine-tuning in needed; otherwise (`strict=True, use_augmentations=True`).
 
-### Stage 2
+### Stage 2 Training
 
 ```bash
 python Train_frameworks.py --stage2 \
@@ -470,9 +468,9 @@ python Train_frameworks.py --stage2 \
 | `mask_ratio` (val) | `0.20` |
 | `mask_ratio_min/max` (train) | `0.15` / `0.75` |
 
-Stage 1 is loaded from `--stage1-ckpt`, frozen, and set to `eval()`. Stage 2 weights can optionally be warm-started via `--pretrained-stage2-ckpt`.
+Stage 1 is loaded from `--stage1-ckpt`, frozen, and set to `eval()`. Stage 2 weights can optionally be warm-started via `--pretrained-stage2-ckpt` (very nice to use in case you want faster convergence and you have not changed the model design).
 
-### WandB Logging
+### WandB Logging of Experiments 
 
 ```bash
 # Enable logging
@@ -633,15 +631,6 @@ Results saved to `results_v4_zscore.json` (one entry per slice) plus per-slice P
 | **Precision** | `TP / (TP + FP_ratio)` |
 | **F1** | `2P / (P+1)` for `TP=1` |
 
-#### Preprocessing Modes
-
-| Mode | Use Case |
-|:-----|:---------|
-| `legacy` | Direct scale from `base_size` to image size |
-| `render_fastmri` | Y-axis flipped (FastMRI renders top-down) |
-| `mask_pipeline` | Rasterise box as binary mask, resize with nearest-neighbour |
-
----
 
 ## Evaluation
 
