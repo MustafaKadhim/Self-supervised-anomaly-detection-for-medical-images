@@ -26,19 +26,21 @@ The framework is trained exclusively on healthy subjects and detects anomalies a
 
 ```
 Final_Code_Phiro_Pelvic_MRI/
-├── 📄 Model_Stage_1.py                             # Stage 1: ViT-RVQ-VAE
-├── 📄 Model_Stage_2.py                             # Stage 2: Factorized MaskGIT
-├── 📄 Train_frameworks.py                          # Training entry-point (both stages)
-├── 📄 Inference_Pelvis_Experiments.py              # Full inference pipeline (Recursive-AutoMask V4)
-├── 📄 ROC_Curves_Calculations.py                   # ROC / AUC evaluation utilities
-├── 📄 Simulated_local_prostate_anomalies.py        # Legacy inference helper (CJG cohort)
-├── 📄 Simulated_anomalies_and_Clinical_dataset.py  # Extended inference (CJG cohort)
-├── 📄 Train_Val_Test_Exact_DataSplits_LUND_PROBE.json  # Exact patient-level splits
-├── 📄 Pelvis_experiments_requirements.txt          # Full pinned Python environment
-├── 📄 preslice_volumes.py                          # Pre-slicing NIfTI volumes → .npy
-├── 📄 External_dataset.py                          # External cohort dataset loader
-├── 📄 dataset.py                                   # NpySliceDataset + SliceDataModule
-└── 📄 config.yaml                                  # Centralised configuration reference
+├── 🧠 Models
+│   ├── Model_Stage_1.py                   # Stage 1: ViT-RVQ-VAE
+│   └── Model_Stage_2.py                   # Stage 2: Factorized MaskGIT
+├── 🔥 Training & Inference
+│   ├── Train_frameworks.py                # Training entry-point (both stages)
+│   └── Inference_Pelvis_Experiments.py    # Recursive-AutoMask V4 pipeline
+├── 📊 Evaluation & Data
+│   ├── ROC_Curves_Calculations.py         # ROC / AUC evaluation utilities
+│   ├── dataset.py                         # NpySliceDataset + SliceDataModule
+│   ├── preslice_volumes.py                # Pre-slicing NIfTI volumes → .npy
+│   ├── External_dataset.py                # External cohort dataset loader
+│   └── Train_Val_Test_Exact_DataSplits... # Exact patient-level splits (JSON)
+├── ⚙️ Config
+│   ├── config.yaml                        # Centralised configuration
+│   └── Pelvis_experiments_requirements.txt# Pinned Python environment
 ```
 
 ---
