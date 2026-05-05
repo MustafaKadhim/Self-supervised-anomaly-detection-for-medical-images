@@ -49,6 +49,17 @@ except ImportError:
 
 HEATMAP_CMAP = "gist_heat"
 
+# Core execution path for anomaly detection + ROC:
+#   load stage1/stage2 -> compute Binary token surprisal maps -> aggregate scores.
+# Extra visualization/calibration helpers are retained and grouped as
+# "AVAILABLE YET NOT USED" further below.
+
+
+# =============================================================================
+# AVAILABLE YET NOT USED
+# =============================================================================
+# Annotation overlays are optional and do not affect Binary token surprisal
+# score calculations used by ROC_Curves_Calculations.py.
 
 # =============================================================================
 # Annotation Box Helpers
