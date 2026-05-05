@@ -15,6 +15,36 @@
 
 **Evaluation — ROC curves (`ROC_Curves_Calculations.py`):** Patient-level ROC curves stratified by anomaly category (synthetic, clinical, spacer, etc.).
 
+
+# Table of Contents
+
+- [Core Idea](#core-idea)
+- [Repository Structure](#repository-structure)
+- [Architecture Details](#architecture-details)
+  - [Stage 1 — RVQ-VAE](#stage-1--rvq-vae)
+  - [Stage 2 — Fact-biT](#stage-2--fact-bit)
+- [Installation](#installation)
+- [Data Preparation](#data-preparation)
+  - [1. Preparations](#1-pre-slice-nifti-volumes-to-npy)
+    - [Training data](#training-data-only-normalreference-cases-no-anomalies)
+    - [Test / inference data](#test--inference-data-anomalous-cohorts)
+  - [2. Dataset splits](#2-dataset-splits)
+  - [3. Preprocessing pipeline](#3-preprocessing-pipeline-applied-during-training-data-loading)
+- [Training](#training)
+- [Inference Pipeline](#inference-pipeline)
+- [ROC‑analysis](#roc-analysis)
+- [Acknowledgements](#acknowledgements)
+
+
+
+
+
+
+
+
+
+
+
 ---
 
 ## Repository Structure
