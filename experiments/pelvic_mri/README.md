@@ -28,7 +28,7 @@ The framework is trained exclusively on healthy subjects and detects anomalies a
 Final_Code_Phiro_Pelvic_MRI/
 ├── model_stage1.py                                    # Stage 1: ViT-RVQ-VAE
 ├── model_stage2.py                                    # Stage 2: Factorized MaskGIT
-├── train.py                                           # Training entry-point (both stages)
+├── Train_frameworks.py                                # Training entry-point (both stages)
 ├── dataset.py                                         # NpySliceDataset + SliceDataModule
 ├── preslice_volumes.py                                # Pre-slicing NIfTI volumes -> .npy
 ├── Inference_LUNDPROBE_final.py                       # Full inference pipeline (Recursive-AutoMask V4)
