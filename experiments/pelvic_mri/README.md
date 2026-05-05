@@ -1,17 +1,12 @@
 # Two-Stage Anomaly Detection Framework for Pelvic MRI (LUND-PROBE)
 
-## Overview
-
-This repository implements a two-stage, unsupervised anomaly detection framework for pelvic T2-weighted MRI.
-The framework is trained exclusively on healthy subjects and detects anomalies at inference time by measuring how surprising a given image is relative to the learned normal distribution — no anomaly labels are required during training.
-
 ### Core Idea
 
-**Stage 1 — RVQ-VAE (`model_stage1.py`):** A ViT-based encoder compresses each 2D slice into a discrete token grid via Residual Vector Quantization (RVQ). A PixelShuffle decoder reconstructs the image from quantized tokens.
+**Stage 1 — RVQ-VAE (`Model_Stage_1.py`):** A ViT-based encoder compresses each 2D slice into a discrete token grid via Residual Vector Quantization (RVQ). A PixelShuffle decoder reconstructs the image from quantized tokens.
 
-**Stage 2 — Factorized MaskGIT (`model_stage2.py`):** A bidirectional masked generative transformer learns the joint distribution over the Stage-1 token sequences. The model jointly predicts two codebook levels (structure L1 and texture L2) using factorized task conditioning and 3D Rotary Position Embeddings (RoPE) that encode row, column, and slice-axis positions.
+**Stage 2 — Factorized MaskGIT (`Model_Stage_2.py`):** A bidirectional masked generative transformer learns the joint distribution over the Stage-1 token sequences. The model jointly predicts two codebook levels (structure L1 and texture L2) using factorized task conditioning and 3D Rotary Position Embeddings (RoPE) that encode row, column, and slice-axis positions.
 
-**Inference — Recursive-AutoMask V4 (`Inference_LUNDPROBE_final.py`):** At inference, the framework:
+**Inference — Recursive-AutoMask V4 (`Inference_Pelvis_Experiments.py`):** At inference, the framework:
 1. "Heals" the input by regenerating tokens with deterministic checkerboard masks (ensemble),
 2. Computes an LPIPS perceptual difference map between input and healed image,
 3. Converts the map to Z-scores using population statistics from a calibration set of healthy volunteers,
