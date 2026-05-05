@@ -1,4 +1,8 @@
 #### code for Stage 1 of model framework #####
+# Simplified reader note:
+# - The core pieces consumed by Stage-2 and inference are Stage1RVQVAE tokenization
+#   and reconstruction paths.
+# - Optional/experimental utilities are preserved in-place for reproducibility.
 
 import math
 import os
@@ -704,3 +708,11 @@ class Stage1RVQVAE(pl.LightningModule):
             save_dir=os.path.join(os.path.dirname(__file__), "RQC_ValExamples"),
             max_samples=4,
         )
+
+
+# ============================
+# available yet not used
+# ============================
+# This file still contains optional/experimental components (e.g., alternative
+# perceptual losses and multiscale blocks) that are currently not required by
+# Binary token surprisal scoring in pelvis inference.

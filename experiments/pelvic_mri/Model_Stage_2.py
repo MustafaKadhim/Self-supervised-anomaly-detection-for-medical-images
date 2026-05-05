@@ -1,5 +1,8 @@
 #### code for Stage 2 of model framework #####
-
+# Core path used for anomaly detection score calculations:
+#   forward() training objective + compute_anomaly_map() token surprisal outputs.
+# Additional research utilities are preserved at the bottom under
+# "AVAILABLE YET NOT USED".
 
 import math
 import torch
@@ -1142,6 +1145,13 @@ class FactorizedMaskGIT(pl.LightningModule):
             "coverage": coverage,
         }
         return maps
+
+    # ============================
+    # AVAILABLE YET NOT USED
+    # ============================
+    # The methods below are kept for experimentation/history but are not part of
+    # the Binary token surprisal path used by Inference_Pelvis_Experiments.py
+    # for ROC_Curves_Calculations.py.
 
     @torch.no_grad()
     def compute_multiscale_anomaly(self, images: torch.Tensor) -> dict:
