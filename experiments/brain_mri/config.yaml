@@ -1,43 +1,435 @@
-# ──────────────────────────────────────────────────────
-# Brain MRI Anomaly Detection — Experiment Configuration
-# ──────────────────────────────────────────────────────
+# ============================================================================
+# fastMRI_brain_config.yaml
+# Centralised configuration for the Two-Stage Anomaly Detection Framework
+# (FastMRI / IXI Brain MRI version)
+#
+# Structure:
+#   data          → paths and pre-processing (IXI_dataset_overview.py)
+#   stage1        → RVQ-VAE architecture + training
+#   stage2        → Factorized MaskGIT architecture + training
+#   training      → shared trainer / logging settings (FastMRI_train.py)
+#   calibration   → healthy-volunteer calibration pass
+#   inference     → Recursive-AutoMask V4 settings
+#   evaluation    → bounding-box and ROC / scoring thresholds
+#   annotation    → tools for building label folders and collecting normal slices
+# ============================================================================
 
-experiment:
-  name: "brain_mri_anomaly_detection"
-  description: >
-    Self-supervised anomaly detection on Brain MRI scans (T1/T2 weighted).
-    The model is trained exclusively on healthy brain MRI slices and
-    evaluated on slices containing tumours, lesions, or other anomalies.
-  seed: 42
 
+# ----------------------------------------------------------------------------
+# DATA — IXI_dataset_overview.py  (NIfTI → .npz pre-processing)
+# ----------------------------------------------------------------------------
 data:
-  root: "experiments/brain_mri/data"
-  image_size: 128
-  grayscale: true
-  train_val_split: 0.9
-  num_workers: 4
-  pin_memory: true
+  # Root directory containing IXI T1 NIfTI files (*.nii.gz)
+  input_dir: "/mnt/md2/Musti_Phd_Projects/IXI-TI/"
 
-model:
-  in_channels: 1
-  latent_dim: 512          # Larger bottleneck for richer brain anatomy features
-  base_channels: 32
-  use_skip: true
+  # Output directory for training .npz slices
+  output_npy_dir: "/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/Training_samples_FastMRI_IXI"
 
+  # Directory for validation .npz slices (FastMRI healthy)
+  val_dir: "/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/Validation_samples_FastMRI"
+
+  # Glob pattern for NIfTI files
+  pattern: "*.nii.gz"
+
+  # Search recursively for NIfTI files
+  recursive: true
+
+  # Slice range to export (axial, inclusive; 128–188 captures informative brain slices)
+  training_slice_start: 128
+  training_slice_end:   188
+
+  # Z-score normalisation clipping bounds applied per volume before saving
+  z_clip: "-3,3"
+
+  # Intensity scaling after z-score clip: "none" | "minus1_1" | "zero1"
+  intensity_scale: "none"
+
+  # In-plane target size after canonical reorientation (center-crop-or-pad)
+  target_size: [256, 256]
+
+  # Rotation applied per slice before saving (np.rot90 k=1 → 90° CCW)
+  slice_rotation_k: 1
+
+  # Slice file extension used by the DataModule
+  file_ext: ".npz"        # Key inside the archive is "arr"
+
+  # --- DataLoader (FastMRI_train.py) ---
+  batch_size_stage1: 192   # Stage 1 training batch size
+  batch_size_stage2: 158   # Stage 2 training batch size (smaller for seq_len=1024)
+  num_workers: 12
+
+  # --- Checkpoint output directory ---
+  checkpoint_dir: "/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/FastMRI_IXI_Augmented_lightningCheckpoints"
+
+  # (Optional) Limit number of NIfTI files processed; 0 = all
+  max_samples: 0
+
+  # Volume index for 4D images
+  volume_index: 0
+
+
+# ----------------------------------------------------------------------------
+# STAGE 1 — RVQ-VAE (Stage1RVQVAE in FastMRI_model_stage1.py)
+# ----------------------------------------------------------------------------
+stage1:
+  # --- Architecture ---
+  in_channels:    1           # Grayscale T1 MRI
+  image_size:     256         # Must match data.target_size[0]
+  patch_size:     8           # 8 → 32×32 = 1 024 tokens
+  embed_dim:      256         # Token embedding dimension (encoder & decoder)
+  encoder_depth:  8           # ViT TransformerEncoder layers
+  encoder_heads:  8           # Number of attention heads
+
+  # --- Residual Vector Quantization ---
+  codebook_size:    256       # Codes per quantizer level (NOTE: 256 vs. 192 for pelvic)
+  num_quantizers:   2         # Residual quantizer depth (L1 = structure, L2 = texture)
+  commitment_cost:  0.25      # VQ commitment loss weight (EMA target)
+  # Internal RVQ settings (vector_quantize_pytorch.ResidualVQ):
+  rvq_orthogonal_reg_weight:   0.10   # Forces diversity in codebook embeddings
+  rvq_orthogonal_reg_max_codes: 128   # Limits orthogonal reg computation for speed
+  rvq_threshold_ema_dead_code:  0.10  # Revive dead codes below this usage frequency
+  rvq_ema_decay:               0.85   # EMA decay for codebook update
+
+  # --- Training ---
+  lr:               2.0e-4    # NOTE: 2× higher than pelvic version
+  weight_decay:     1.0e-4    # AdamW weight decay
+  adam_betas:       [0.9, 0.95]
+
+  # --- Perceptual Loss (BiomedCLIP) ---
+  perceptual_weight: 0.5      # NOTE: 0.5 (vs. 0.9 for pelvic); lower weight for brain domain
+  biomedclip_model_name: "microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224"
+  biomedclip_open_clip_model:      null
+  biomedclip_open_clip_pretrained: null
+  biomedclip_feature_layer:  "pooled"
+  biomedclip_normalize_mode: "minmax"
+
+  # --- MONAI Augmentation (applied inside training_step) ---
+  # NOTE: Much richer augmentation than pelvic version (brain MRI variability)
+  use_augmentations: true
+  sanity_check_aug:  true     # Saves augmentation preview on first training batch
+
+  aug_intensity_factor: 0.10  # RandScaleIntensity factor (brightness-like)
+  aug_intensity_prob:   0.33
+
+  aug_contrast_gamma: [0.5, 1.5]  # RandAdjustContrast gamma range
+  aug_contrast_prob:   0.33
+
+  aug_noise_prob:   0.50      # NOTE: high probability — brain MRI has acquisition noise
+  aug_noise_std:    0.30      # RandGaussianNoise std (applied after z-score normalisation)
+
+  aug_rotate_deg:       15.0  # ±degrees for RandAffine rotation (3× pelvic range)
+  aug_translate_px:     15    # Horizontal + vertical translation pixels (bi-directional)
+  aug_zoom_min:         0.8   # Minimum zoom factor (80%)
+  aug_zoom_max:         1.2   # Maximum zoom factor (120%)
+  aug_affine_prob:      0.33
+
+  aug_flip_prob:        0.50  # RandFlip (horizontal; left-right)
+  aug_flip_axis:        2     # Spatial axis for flip (axis=2 = horizontal)
+
+  # --- Visualisation ---
+  val_max_samples: 4          # Max samples per validation epoch
+  vis_save_dir: "FastMRI_RQC_ValExamples"   # Relative to script directory
+
+
+# ----------------------------------------------------------------------------
+# STAGE 2 — Factorized MaskGIT (FactorizedMaskGIT in FastMRI_model_stage2.py)
+# ----------------------------------------------------------------------------
+stage2:
+  # --- Architecture ---
+  embed_dim:  256             # Must match stage1.embed_dim
+  depth:      8               # Number of TransformerBlockSDPA layers
+  num_heads:  8               # Attention heads per block
+  # seq_len derived automatically: (image_size // patch_size)² = 1024
+
+  # --- 2D Rotary Position Embeddings (RoPE) ---
+  # NOTE: Brain version uses 2D RoPE (row, col ONLY) — no slice axis
+  # The 3D RoPE used in the pelvic version is NOT present here.
+  rope_max_positions: 33      # Maximum spatial row/col positions (seq_hw + 1 = 33)
+  rope_base:          25000.0 # Base frequency for RoPE
+  # slice_pos is accepted by the transformer but silently ignored (backward compat)
+
+  # --- Token embeddings ---
+  codebook_size_level1: 256   # Must match stage1.codebook_size
+  codebook_size_level2: 256   # Must match stage1.codebook_size
+
+  # --- Masking strategy ---
+  mask_ratio:       0.20      # Fixed mask ratio used at validation time
+  mask_ratio_min:   0.15      # Lower bound for β-distribution masking
+  mask_ratio_max:   0.75      # Upper bound for β-distribution masking
+  beta_alpha:       4.0       # β distribution α shape parameter
+  beta_beta:        4.0       # β distribution β shape parameter
+  # L1 masking: 70% of time ratio ∈ [0.50, 0.75]; 30% of time ratio ∈ [0.20, 0.50]
+  # L2 masking: ratio ∈ [0.15, 0.55] from β(4,4)
+  block_mask_prob:  0.50      # Fraction of batches using block masking
+
+  # --- Loss weights ---
+  l2_loss_weight:   0.25      # Cross-entropy weight for L2 (texture) token prediction
+  q_error_weight:   0.10      # Quantisation error weight in the anomaly score at inference
+
+  # --- Label smoothing ---
+  label_smoothing:  0.05      # Applied during training only
+
+  # --- Training ---
+  lr:             2.0e-4      # NOTE: same higher LR as Stage 1
+  weight_decay:   0.01        # Applied to non-bias / non-norm / non-embed params
+  adam_betas:     [0.9, 0.98]
+  warmup_steps:   2000        # Linear LR warmup in global optimizer steps
+
+  # --- Anomaly score ---
+  learnable_anomaly_weights: false   # If true, softmax-normalised learned weight vector
+
+  # --- Token frequency logging ---
+  frequency_log_interval: 1000  # Log codebook utilisation every N batches
+
+  # --- Validation ---
+  center_mask_margin_frac: 0.167   # margin = H // 6 on each side (centre 67%×67%)
+
+
+# ----------------------------------------------------------------------------
+# TRAINING — shared trainer / logging settings (FastMRI_train.py)
+# ----------------------------------------------------------------------------
 training:
-  num_epochs: 200
-  batch_size: 16
-  learning_rate: 5.0e-5    # Lower LR for fine-grained brain anatomy reconstruction
-  weight_decay: 1.0e-5
-  l1_weight: 1.0
-  ssim_weight: 1.5          # Stronger SSIM emphasis — brain structures are highly regular
-  perceptual_weight: 0.2
+  max_epochs: 100
+  precision:  32              # 32 = full float32
+  gradient_clip_val: 1.0
 
+  # GPU device index
+  devices: [1]
+  accelerator: "auto"
+
+  # --- Checkpoint ---
+  checkpoint_dir: "/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/FastMRI_IXI_Augmented_lightningCheckpoints"
+  checkpoint_save_top_k: 3
+  checkpoint_monitor: "val/loss"
+  checkpoint_mode: "min"
+  checkpoint_filename_template: "FastMRI_{stage}-{epoch:03d}-{val/loss:.4f}"
+
+  # --- CSV Logger ---
+  log_dir: "logs"
+
+  # --- Weights & Biases ---
+  wandb_project:        "RVQ-MaskGIT-FastMRI-IXI"
+  wandb_entity:         null
+  wandb_run_name_stage1: "Stage1-FastMRI-IXI-RVQ-VAE"
+  wandb_run_name_stage2: "Stage2-Augmented-FastMRI-IXI-RQV-BioMed-MaskGIT-256-patchsize-8"
+  wandb_log_model: true
+
+  # --- Fine-tuning / warm-start ---
+  pretrained_stage1_ckpt: null  # Path to Stage1 ckpt for fine-tuning (loads with strict=False)
+  pretrained_stage2_ckpt: null  # Path to Stage2 ckpt for warm-start (loads with strict=False)
+
+  # Default Stage1 checkpoint used when training Stage2
+  stage1_ckpt: "/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/FastMRI_IXI_Augmented_lightningCheckpoints/FastMRI_stage1-epoch=099-val/loss=0.0891.ckpt"
+
+
+# ----------------------------------------------------------------------------
+# CALIBRATION — healthy volunteer calibration pass
+# (run_calibration in Inference_FastMRI_SOTA_5p_Rec_Heal_5p0_automatic_final.py)
+# ----------------------------------------------------------------------------
+calibration:
+  # Output path for the .npz calibration file
+  output_path: "/path/to/calibration/zscore_calibration.npz"
+
+  # Data directory with healthy volunteer .npz slices
+  data_dir: "/path/to/Normal_Brains_slices"
+
+  # --- Healing parameters (must match inference settings) ---
+  heal_steps:       12
+  heal_temperature: 0.80
+  heal_patterns:    [0, 1]    # Checkerboard mask patterns (0/1 = pixel alternating)
+
+  # --- TTA (Test-Time Augmentation) ---
+  use_tta: true               # Adds horizontal-flip healing branch
+
+  # --- Spatial smoothing (CRITICAL: must match inference.smoothing_kernel) ---
+  smoothing_kernel: 15        # avg_pool kernel for per-pixel μ/σ computation
+
+  # --- Per-slice statistics ---
+  use_per_slice_stats: true   # Compute μ/σ per slice index (≥3 samples required)
+
+  # --- Heatmap aggregation ---
+  heatmap_aggregation: "mean"
+  logsumexp_temp:      1.0
+
+  # --- Substring filter for calibration data ---
+  calibration_substring: ""   # If set, only files containing this string are used
+
+  # --- Debug ---
+  debug: true
+
+
+# ----------------------------------------------------------------------------
+# INFERENCE — Recursive-AutoMask V4 with Z-Score Normalization
+# (recursive_automask_v4_zscore in Inference_FastMRI_SOTA_5p_Rec_Heal_5p0_automatic_final.py)
+# ----------------------------------------------------------------------------
+inference:
+  # --- Model checkpoints ---
+  stage1_ckpt: "/path/to/FastMRI_stage1.ckpt"
+  stage2_ckpt: "/path/to/FastMRI_stage2.ckpt"
+
+  # --- Data ---
+  data_dir:   "/path/to/test_slices"
+  output_dir: "/path/to/inference_results"
+
+  # --- Calibration map (required for Z-score mode) ---
+  calibration_map: "/path/to/zscore_calibration.npz"
+
+  # --- Z-score thresholding (Iteration 0) ---
+  z_threshold:      2.0     # Anomaly if Z > this value (std deviations above healthy mean)
+                            # Can also be a two-sided tuple [z_low, z_high]
+  z_epsilon:        0.01    # Numerical stability: Z = (x - μ) / (σ + ε)
+  smoothing_kernel: 15      # MUST match calibration.smoothing_kernel
+
+  # --- Recursive iterations ---
+  num_iterations:           3   # Total iterations (1 Z-score + 2 refinement)
+  inter_iteration_dilation: 5   # Dilation kernel size between iterations
+
+  # --- Ensemble healing ---
+  heal_steps:       12
+  heal_temperature: 0.80
+  heal_patterns:    [0, 1]
+
+  # --- TTA ---
+  use_tta: true
+
+  # --- Heatmap aggregation ---
+  heatmap_aggregation: "mean"
+  logsumexp_temp:      1.0
+
+  # --- Binary mask generation (fallback: percentile thresholding for iterations 1+) ---
+  mask_threshold_percentile: 95.0   # Percentile threshold for LPIPS heatmap
+  mask_dilation:              3     # Morphological dilation kernel after thresholding
+  mask_min_region:            5     # Minimum connected-component size (pixels) to keep
+
+  # --- Artifact guard (sharpness) ---
+  blur_threshold: 0.002   # Laplacian variance below this → motion artifact flag
+
+  # --- Targeted inpainting (inside each iteration) ---
+  inpaint_steps:       12
+  inpaint_temperature: 0.90
+
+  # --- Token-to-pixel mask mapping ---
+  token_mask_mode:           "max"  # "max" | "avg" | "topk"
+  token_mask_avg_threshold:   0.50  # Threshold for "avg" mode
+  token_mask_topk_ratio:      0.10  # Fraction of tokens masked in "topk" mode
+
+  # --- Token surprisal (pseudo-PLL) ---
+  compute_token_surprisal:     true
+  token_surprisal_samples:     50     # Number of random-masking Monte Carlo passes
+  token_surprisal_mask_ratio:  0.15   # Fraction of L1 tokens masked per pass
+  token_surprisal_clamp:       5.0    # NLL values below clamp are zeroed (noise filter)
+
+  # --- Bounding-box-based detection fusion ---
+  binary_include_token_surprisal:   true   # Include token surprisal in fused binary map
+  binary_token_surprisal_threshold: 0.5    # Surprisal quantile threshold for fusion
+
+  # LPIPS backflow selector: feeds high-LPIPS regions back into the binary+token map
+  # Use a fixed float (e.g. 0.33) or tuple mode (percentile, fixed_threshold):
+  #   (95, 0)    → 95th-percentile cut
+  #   (0, 0.33)  → fixed threshold
+  lpips_rec_inp_threshold_back_to_binary_token_map: [0, 0.33]
+
+  # --- Edge-to-center adaptive erosion (reduces boundary FPs) ---
+  binary_edge_erosion_iters:         0    # Max erosion iterations at image border (0 = disabled)
+  binary_center_protect_radius_ratio: 0.25  # Central radius (fraction of image) with minimal erosion
+  binary_edge_erosion_kernel:        3    # Odd kernel size for binary erosion
+
+  # --- Annotation box evaluation ---
+  annotation_csv:            null    # Path to CSV with bounding-box ground truth
+  annotation_preprocess_mode: "legacy"  # "legacy" | "render_fastmri" | "mask_pipeline"
+  tp_inside_ratio_threshold:  0.10   # Min GT-box overlap fraction to count as TP
+
+  # --- Categorical filtering ---
+  category:       null   # Filter input data to a single anomaly category
+  json_categories: null  # List of categories to write in the output JSON
+
+  # --- Device ---
+  device: "cuda"
+
+  # --- Figures / debug ---
+  save_all_visualizations:  true   # Save per-slice PNG figures
+  no_figures_only_json:     false  # If true, skip figures and write JSON only
+  no_aggregation_figures:   false
+  no_token_mask_figures:    false
+  figure_dpi:               150
+
+
+# ----------------------------------------------------------------------------
+# EVALUATION — patient-level ROC and bounding-box detection metrics
+# (fastMRI_ROC_Curve_Calculations.py)
+# ----------------------------------------------------------------------------
 evaluation:
-  anomaly_score_reduction: "percentile95"
-  batch_size: 32
+  # Path(s) to results JSON from inference
+  roc_input_paths:
+    - "/path/to/inference_results/results_v4_zscore.json"
 
-output:
-  checkpoint_dir: "experiments/brain_mri/checkpoints"
-  results_dir: "experiments/brain_mri/results"
-  log_level: "INFO"
+  output_dir: "/path/to/roc_figures"
+
+  # --- Patient score thresholds ---
+  # Patient is anomalous if total clamped_pixel_sum > this threshold
+  clamped_pixel_sum_threshold: 1000.0
+
+  # --- FP pixel ratio computation ---
+  # FP ratio = highlighted_FP_pixels / (num_no_bbox_slices × 256 × 256) × 100
+  fp_ratio_image_size: 256
+
+  # --- Category / case-folder filtering ---
+  # Set to a non-null string to restrict evaluation to a specific anomaly type
+  focus_category:    null    # e.g. "Mass", "Edema" (substring match)
+  focus_case_folder: null    # e.g. "file1234" (substring match)
+
+  # Top-N patients to display in bar plots (null = all)
+  plot_top_n: null
+
+
+# ----------------------------------------------------------------------------
+# ANNOTATION TOOLS
+# ----------------------------------------------------------------------------
+annotation:
+  # --- collect_normal_slices.py ---
+  normal_slices:
+    annotation_csv:    "/path/to/.annotation_cache/brain.csv"
+    patient_list:      "Annotated_FastMRI_Brains.csv"
+    series_type:       "AXT1"          # Filter patients by series type in filename
+    slice_start:       0
+    slice_end:         5
+    png_root:          "/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/Normal_Brains_pngs"
+    png_pattern:       "{file}.png"    # Placeholders: {file}, {slice}
+    normal_label_keyword: "Normal"     # Case-insensitive keyword for normal annotations
+    output_csv:        "normal_slices_0_5.csv"
+
+  # --- build_patient_Global_label_folders.py ---
+  global_labels:
+    anomalies_dir: "/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/FastMRI_Anomalies_Collection"
+    detailed_csv:  "/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/Annotated_fastMRI_Brains_Detailed.csv"
+    output_dir:    "/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/FastMRI_Anomalies_Collection/FastMRI_Global_Anomalies_ByLabel"
+    labels:
+      - "Motion artifact"
+      - "Possible artifact"
+      - "Colpocephaly"
+      - "Extra-axial collection"
+      - "Global label: Small vessel chronic white matter ischemic change"
+    use_detailed: true
+    create_patient_folders: true
+
+  # --- build_patient_Local_label_folders.py ---
+  local_labels:
+    anomalies_dir: "/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/FastMRI_Anomalies_Collection"
+    detailed_csv:  "/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/Annotated_fastMRI_Brains_Detailed.csv"
+    output_dir:    "/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/FastMRI_Anomalies_Collection/FastMRI_Local_Anomalies_ByLabel"
+    labels:
+      - "Edema"
+      - "Enlarged ventricles"
+      - "Craniotomy"
+      - "Mass"
+      - "Nonspecific lesion"
+      - "Resection cavity"
+      - "Intraventricular substance"
+      - "Paranasal sinus opacification"
+      - "Posttreatment change"
+      - "Nonspecific white matter lesion"
+      - "Encephalomalacia"
+      - "Dural thickening"
+      - "Absent septum pellucidum"
+      - "Lacunar infarct"
+      - "Likely cysts"
