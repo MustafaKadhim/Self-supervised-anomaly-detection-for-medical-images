@@ -63,7 +63,7 @@ Final_Code_Phiro_Brain_MRI/
 
 ---
 
-### Stage 2 — Factorized MaskGIT (`FastMRI_model_stage2.py`)
+### Stage 2 — Fact-biT (`FastMRI_model_stage2.py`)
 
 | Component | Detail |
 |-----------|--------|
