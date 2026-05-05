@@ -775,52 +775,20 @@ python FastMRI_ROC_Curve_Calculations.py \
 | **Active workflow scripts** | `Train_frameworks.py`, `FastMRI_model_stage1.py`, `FastMRI_model_stage2.py`, `FastMRI_Inference.py`, `IXI_dataset_overview_collection.py`, `FastMRI_ROC_Curve_Calculations.py` |
 | **Reference/config summary** | `config.yaml.yaml` — **not automatically loaded at runtime** |
 
-### Important Implementation Clarifications
+### ⚠️ Important Implementation Clarifications
 
-#### 1. Primary Anomaly Heatmap Is Reconstruction-Referenced
-
-> ⚠️ **This is the most important clarification for readers.**
+#### 1. In Our Work: Primary Anomaly Heatmap Is Calculated as Reconstruction-Healed 
 
 | Stage | Reference |
 |:------|:----------|
-| Calibration | `LPIPS(reconstruction, healed)` |
+| Calibration           | `LPIPS(reconstruction, healed)` |
 | Inference Iteration 0 | `LPIPS(reconstruction, healed)` |
-| Refinement Iterations | `LPIPS(reconstruction, inpainted)` |
 
-The main anomaly heatmap is referenced to the **Stage 1 reconstruction**, not directly to the original input image. The script computes `lpips_input_recon` for auxiliary analysis only.
+Nonehteless, our inference script computes `lpips_input_recon` for additional auxiliary analysis only to allow you to get an idea about the performance.
 
-#### 2. `config.yaml.yaml` Is Not the Active Runtime Controller
+#### 2. Script Defaults In This Work
 
-The YAML documents intended settings well, but active behavior is defined directly in scripts:
-
-- `Train_frameworks.py` defines CLI defaults for paths, batch size, LR, etc.
-- `FastMRI_Inference.py` defines inference defaults directly
-- YAML is best understood as a **structured record/reference**, not the sole source of truth
-
-#### 3. Training Depends on a Shared/External Dataset Module
-
-```python
-from dataset import SliceDataModule  # Lives OUTSIDE this folder
-```
-
-Ensure `dataset.py` is available in your Python path.
-
-#### 4. Inference Dataloader Is More Flexible Than Originally Documented
-
-`create_inference_dataloader(...)` supports:
-- Recursive search for `.npz` and `.npy`
-- Filtering by `category_filter`, `case_filter`, `patient_filter`
-- `case_folder` set from immediate parent directory
-
-Suitable for both native FastMRI `.npz` and external `.npy` datasets.
-
-#### 5. Calibration Mode Writes an Input Audit Log
-
-During calibration, `calibration_input_files.txt` is written recording exact selected files and active filters. **Retain this for reproducibility.**
-
-#### 6. Script Defaults May Differ from Recommended Settings
-
-Current defaults in `FastMRI_Inference.py` (not the same as README examples):
+Current defaults in `FastMRI_Inference.py`:
 
 | Parameter | Default |
 |:----------|:--------|
