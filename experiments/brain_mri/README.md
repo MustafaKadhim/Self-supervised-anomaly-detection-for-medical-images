@@ -563,39 +563,204 @@ Results saved to `results_v4_zscore.json` (one entry per slice) plus per-slice d
 
 ### ROC Curves and Detection Metrics
 
-```bash
-python FastMRI_ROC_Curve_Calculations.py \
-    --input /path/to/results_v4_zscore.json \
-    --output-dir /path/to/roc_figures \
-    [--category "Mass"] \
-    [--case-folder "patient_abc"]
+## 📊 ROC Analysis Implementation
+
+> **Prerequisite:** This section describes the exact implementation found in `FastMRI_ROC_Curve_Calculations.py`. All scores, thresholds, and aggregation logic are documented here for exact replication.
+
+---
+
+### Overview
+
+The ROC analysis operates at the **patient level**, not slice level. It uses `Binary_Sum_Heatmap` (or Binary+Token combined) as the anomaly score and treats **Test_Samples_FastMRI** patients as the normal class. Validation samples are excluded by default.
+
+```
+Slice-level JSON results
+    │
+    ├──→ Aggregate per patient (sum Binary_Sum_Heatmap)
+    │
+    ├──→ Classify patients:
+    │       • Test_Samples_FastMRI → Normal (label=0)
+    │       • Validation_samples → Excluded (default)
+    │       • Everything else → Anomaly (label=1)
+    │
+    └──→ Compute ROC curve + AUC + bootstrap CI
+```
+
+### Score Definition: What Is the ROC Score?
+
+The primary score for ROC generation is derived from **`Binary_Sum_Heatmap`** at the **slice level**, aggregated to the **patient level**.
+
+#### Score Aggregation Formula
+
+```python
+# Per patient:
+patient_score = Σ (Binary_Sum_Heatmap) across all slices for that patient. (Patient ID is derived from the filename stem before `_slice_`)
 ```
 
 
+#### Binary+Token Combined Score (Optional)
+
+When inference is run with `--binary-include-token-surprisal`, the `Binary_Sum_Heatmap` field already contains the fused Binary+Token value. However, the ROC-script also supports computing a combined score explicitly if needed:
+
+```python
+combined_score_per_slice = token_surprisal_hot_px + Binary_Sum_Heatmap
+patient_combined_score = Σ combined_score_per_slice
+```
+---
+
+### Patient Classification: Normal vs. Anomaly Ground Truth
+
+#### Classification Rules
+
+| Criterion | Label | Included in ROC |
+|:----------|:-----:|:---------------|
+| Patient ID or category contains `"test_samples_fastmri"` | `0` (Normal/Reference) | ✅ Yes |
+| Patient ID or cetegory contains `"orig"`                 | `0` (Normal/Reference) | ✅ Yes |
+| Patient ID or category contains `"validation_samples"`   | `0` (Normal)           | ❌ No (excluded by default) |
+| Everything else                                          | `1` (Anomaly)          | ✅ Yes |
+
+> **Critical:** The ROC uses **only Test samples** as negatives by default. Use `--include-validation-in-roc` to also include Validation samples if needed.
+
+---
+
+#### Step 2: Compute ROC Curve and AUC
+
+```python
+compute_fastmri_roc_and_auc(
+    patient_scores=merged_patient_scores,
+    expected_test_normals=30,           # Sanity check: expected # of test normals
+    bootstrap_samples=2000,             # For confidence intervals
+    confidence_level=0.95,
+    bootstrap_random_seed=42,
+    ci_fpr_grid_size=201,               # Grid resolution for CI band
+)
+```
+
+Outputs:
+- `sensitivity` = TP / (TP + FN)
+- `specificity` = TN / (TN + FP)
+- `FPR` = 1-specificity 
+- `auc_mean`, `auc_std`, `auc_ci_lower`, `auc_ci_upper`
+- `tpr_ci_lower`, `tpr_ci_upper`, `tpr_median` at each false-positive ratio (FPR) point
+
+---
+
+### Threshold Selection Strategies (Optional)
+
+#### 1. Best Threshold by Youden's J Index
+
+```python
+best_threshold = max(roc_points, key=lambda p: p["youden_j"])
+# youden_j = sensitivity - fpr
+```
+
+#### 2. Fixed FPR Threshold
+
+```python
+select_threshold_for_target_fpr(roc_metrics, target_fpr=0.20)
+# Returns threshold with highest sensitivity where FPR <= target_fpr
+```
+
+#### 3. Fixed Threshold Evaluation
+
+```python
+evaluate_threshold_on_patient_scores(patient_scores, threshold=1019.0)
+# Evaluates the specific threshold used during inference
+```
+
+---
+
+### Output Files and Figures
+
+| Output | Description |
+|:-------|:------------|
+| `FastMRI_ROC_binary_token_curve.png`                | ROC curve with AUC, bootstrap CI band, chance line |
+| `FastMRI_ROC_Merged_BinaryToken.json`               | Merged patient scores and metadata |
+| `FastMRI_ROC_binary_token_metrics.json`             | Full ROC metrics, thresholds, and evaluations |
+| `FastMRI_ROC_Threshold_Table.csv`                   | Per-threshold TP/FP/TN/FN/sensitivity/FPR/precision |
+| `FastMRI_ROC_Threshold_Table_page_*.png`            | Paginated threshold table figures |
+| `FastMRI_Category_Stratified_Performance_Table.json`| Per-anomaly-category performance |
+| `FastMRI_Category_Stratified_Performance_Table.csv` | CSV of category stratified results |
+| `FastMRI_Category_Stratified_Performance_Table.png` | Visual table of category performance |
+
+
+---
+
+### Command-Line Usage
+
+| Argument | Default | Description |
+|:---------|:--------|:------------|
+| `--input`                     | `results_v4_zscore.json` | Path to single JSON or root folder |
+| `--output-dir`                | Input parent | Output directory for all plots and tables |
+| `--binary-token-patient-threshold` | `1019.0` | Fixed threshold for Binary+Token patient sum |
+| `--expected-test-normal-cases` | `30` | Expected number of Test normal patients (sanity check) |
+| `--roc-target-fpr`            | `0.20` | Target max FPR for recommended threshold |
+| `--roc-ci-bootstrap-samples`  | `2000` | Bootstrap samples for AUC CI (0 to disable) |
+| `--roc-ci-confidence-level`   | `0.95` | Confidence level for bootstrap CI |
+| `--roc-ci-random-seed`        | `42` | Random seed for reproducible bootstrap (negative = non-deterministic) |
+| `--roc-ci-fpr-grid-size`      | `201` | FPR grid resolution for CI band |
+| `--include-validation-in-roc` | False | Include Validation_samples in ROC normal class |
+| `--disable-fastmri-roc`       | False | Skip ROC/AUC generation entirely |
+| `--show-best-j-marker`        | False | Show Best-Youden marker on ROC curve |
+| `--category`                  | None | Filter to categories containing substring (repeatable) |
+| `--case-folder`               | None | Filter to case_folders containing substring (repeatable) |
+| `--top-n`                     | None | Limit to first N patients in plots |
+
+#### Basic ROC Analysis (Single JSON)
+
+```bash
+python FastMRI_ROC_Curve_Calculations.py \
+    --input /path/to/results_v4_zscore.json \
+    --output-dir /path/to/roc_output \
+    --expected-test-normal-cases 30 \
+    --roc-target-fpr 0.20 \
+    --roc-ci-bootstrap-samples 2000 \
+    --roc-ci-confidence-level 0.95 \
+    --roc-ci-random-seed 42
+```
+
+#### With Category Filtering
+
+```bash
+python FastMRI_ROC_Curve_Calculations.py \
+    --input /path/to/results_v4_zscore.json \
+    --category "Mass" \
+    --expected-test-normal-cases 30 \
+    --roc-target-fpr 0.20 \
+    --roc-ci-bootstrap-samples 2000 \
+    --roc-ci-confidence-level 0.95 \
+    --roc-ci-random-seed 42
+```
+
+#### Include Validation in ROC Normal Class
+
+```bash
+python FastMRI_ROC_Curve_Calculations.py \
+    --input /path/to/results_v4_zscore.json \
+    --include-validation-in-roc \
+    --expected-test-normal-cases 50
+```
+
+#### Disable ROC (Plots Only)
+
+```bash
+python FastMRI_ROC_Curve_Calculations.py \
+    --input /path/to/results_v4_zscore.json \
+    --disable-fastmri-roc
+```
+---
 
 
 ### Annotation Box Evaluation (Optional)
-`I have included this option in case you want to investigate the overlap of your anomaly heatmaps with any available bounding boxes)`
+`I have included this option in case you want to investigate the overlap of your anomaly heatmaps with any available bounding boxes). This was inspired by Bercea, C.I et.al. 2025`
 
 | Feature | Description |
 |:--------|:------------|
 | **Input** | `--annotation-csv` with columns: `file, slice, x, y, width, height, label, study_level, base_size` |
-| **TP Criterion** | Predicted mask covers ≥10% of GT box area |
+| **TP Criterion** | Predicted mask covers ≥5% of GT box area |
 | **FP Ratio** | Predicted pixels outside healthy region / predicted pixels inside GT box |
 | **Precision** | `TP / (TP + FP_ratio)` |
 | **F1** | `2P / (P+1)` for `TP=1` |
-
-
-## Exact Replication Checklist
-
-- [ ] IXI T1 volumes pre-processed with `IXI_dataset_overview_collection.py`, slices 128–188, z-clip `[−3,3]`, `256×256` crop, 90° CCW rotation, saved as `.npz`
-- [ ] Stage 1 trained 100 epochs, batch=192, lr=2e-4, `embed_dim=256`, `codebook_size=256`, `perceptual_weight=0.5`, full augmentation suite enabled
-- [ ] Stage 2 trained 100 epochs, batch=158, lr=2e-4, `embed_dim=256`, `codebook_size=256` both levels, 2000-step LR warmup, Stage 1 frozen
-- [ ] Calibration run on "Normal" FastMRI slices with `smoothing_kernel=15`, `heal_patterns=[0,1]`
-- [ ] Inference uses identical `smoothing_kernel=15`, `z_threshold=2.0`, `num_iterations=3`, `heal_steps=12`, `heal_temperature=0.8`, `inpaint_steps=12`, `inpaint_temperature=0.9`, `token_surprisal_samples=50`, `mask_ratio=0.15`
-- [ ] Annotation boxes loaded from `brain.csv` with the appropriate `--annotation-preprocess-mode`
-- [ ] Patient-level scores aggregated from `clamped_pixel_sum` over all evaluated slices
-- [ ] ROC curves generated with `FastMRI_ROC_Curve_Calculations.py` per anomaly category
 
 ---
 
