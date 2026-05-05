@@ -10,7 +10,7 @@ DEFAULT_COLORMAPS: tuple[str, ...] = (
     "inferno", "magma", "plasma", "viridis", "cividis",
     "turbo", "hot", "afmhot", "YlOrRd", "OrRd",
     "Spectral", "coolwarm", "RdYlBu_r", "RdPu", "cubehelix",
-    "gnuplot2", "CMRmap", "gist_heat", "nipy_spectral", "twilight_shifted",
+    "gnuplot2", "CMRmap", "gist_heat", "nipy_spectral", "twilight_shifted", #or any others you find interesting to add
 )
 
 
