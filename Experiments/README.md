@@ -145,7 +145,7 @@ The CORE score is **not** only the perceptual/binary heatmap side, and is **not*
 
 The Brain repository is organized around:
 
-- 🔹 Healthy **IXI T1** NIfTI volumes for training-style slice generation
+- 🔹 normal/reference **IXI T1** NIfTI volumes for training-style slice generation
 - 🔹 **fastMRI-style** `.h5` rendering / annotation workflows for evaluation/anomaly folders
 - 🔹 Saved 2D slices, primarily as **`.npz`** files containing key `arr`
 
@@ -351,7 +351,7 @@ Brain and Pelvis differ in how labels are derived for ROC:
 
 | Topic | 🧠 Brain | 🦴 Pelvis | CORE Relevance |
 |---|---|---|---|
-| **Calibration statistic** | Per-pixel healthy LPIPS stats | Per-pixel normal/reference LPIPS stats | Both rely on calibration maps for Z-score thresholding |
+| **Calibration statistic** | Per-pixel normal/reference LPIPS stats | Per-pixel normal/reference LPIPS stats | Both rely on calibration maps for Z-score thresholding |
 | **LPIPS calibration reference** | Reconstruction-vs-healed | Input-vs-healed | Different heatmap semantics |
 | **Smoothing kernel default** | `7` | `15` | ⚠️ Must match between calibration and inference *within* each experiment |
 | **Heal patterns** | `"4"` | `"2,3"` | Changes healing masks and heatmap generation |
