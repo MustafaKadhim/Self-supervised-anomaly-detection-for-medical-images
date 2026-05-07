@@ -2,14 +2,14 @@
 
 # 🦴 Two-Stage Unsupervised Anomaly Detection for Pelvic MRI
 
+### *LUND-PROBE Implementation*
+
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-Lightning-orange.svg)](https://pytorch.org/)
 [![MONAI](https://img.shields.io/badge/MONAI-Medical_AI-red.svg)](https://monai.io/)
 [![Research](https://img.shields.io/badge/Status-Research_Code-yellow.svg)]()
-</div>
 
-<div align="left">
-A two-stage unsupervised anomaly-detection framework that learns from normal/reference pelvic MRI slices and detects deviations in synthetic and clinical anomaly cohorts, utlizing the LUND-PROBE as reference.
+*A two-stage unsupervised anomaly-detection framework that learns from normal/reference pelvic MRI slices and detects deviations in synthetic and clinical anomaly cohorts.*
 
 </div>
 
@@ -30,7 +30,7 @@ A two-stage unsupervised anomaly-detection framework that learns from normal/ref
 **🏗️ Architecture**
 - [Method Overview](#-method-overview)
 - [Stage 1: RVQ-VAE](#-stage-1--rvq-vae)
-- [Stage 2: Factorized MaskGIT / Fact-biT](#-stage-2--factorized-maskgit--fact-bit)
+- [Stage 2: Fact-biT / Fact-biT](#-stage-2--factorized-maskgit--fact-bit)
 
 </td>
 <td width="50%" valign="top">
@@ -83,39 +83,39 @@ The primary patient-level ROC/PR path flows through the following stages:
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                         INPUT SLICE                              │
+│                         INPUT SLICE                             │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│          Stage 1: RVQ-VAE  →  reconstruction / tokens            │
+│          Stage 1: RVQ-VAE  →  reconstruction image / tokens     │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│      Stage 2: Factorized MaskGIT / Fact-biT  →  healing          │
+│      Stage 2:  Fact-biT  →  healing                             │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│      LPIPS (input vs. healed/inpainted)  →  heatmap              │
+│      LPIPS (input vs. healed/inpainted)  →  heatmap             │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│      Binary + token-surprisal fusion                             │
+│      Binary + token-surprisal fusion                            │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌──────────────────────┐         ┌──────────────────────────────┐
 │  Binary_Sum_Heatmap  │         │  token_surprisal_hot_px      │
-│      (per slice)     │         │         (per slice)           │
+│      (per slice)     │         │         (per slice)          │
 └──────────┬───────────┘         └──────────────┬───────────────┘
            │                                    │
            └────────────────┬───────────────────┘
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  Patient-level:  sum_all_bars_score                              │
-│  = Σ_slices (token_surprisal_hot_px + Binary_Sum_Heatmap)        │
+│  Patient-level:  sum_all_bars_score                             │
+│  = Σ_slices (token_surprisal_hot_px + Binary_Sum_Heatmap)       │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                  ROC / AUROC and PR / AUPRC                      │
+│                  ROC / AUROC and PR / AUPRC                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -162,7 +162,7 @@ Final_Clean_to_Github_Pelvis/
 │
 ├── 🟢 CORE — Models & Pipeline
 │   ├── Model_Stage_1.py                         # Stage 1 RVQ-VAE model
-│   ├── Model_Stage_2.py                         # Stage 2 Factorized MaskGIT / Fact-biT model
+│   ├── Model_Stage_2.py                         # Stage 2 Fact-biT / Fact-biT model
 │   ├── Train_framework.py                       # PyTorch Lightning training entry point
 │   ├── dataset.py                               # .npy slice Dataset/DataModule
 │   ├── Inference_Pelvis_Experiments.py          # Recursive-AutoMask V4 inference + calibration
@@ -202,7 +202,7 @@ The framework has **two learned stages**:
 </tr>
 <tr>
 <td align="center"><b>2️⃣<br>Stage 2</b></td>
-<td><b>Factorized MaskGIT / Fact-biT transformer</b></td>
+<td><b>Fact-biT / Fact-biT transformer</b></td>
 <td>Learns token distributions and heals masked/suspect tokens using bidirectional masked prediction</td>
 </tr>
 </table>
@@ -281,7 +281,7 @@ Training uses AdamW with a cosine annealing learning-rate schedule. Stage 1 also
 
 ---
 
-## 🧩 Stage 2 — Factorized MaskGIT / Fact-biT
+## 🧩 Stage 2 — Fact-biT / Fact-biT
 
 📄 **File:** `Model_Stage_2.py`
 
@@ -591,17 +591,17 @@ Inside `recursive_automask_v4_zscore(...)`, the CORE flow is:
         ↓
 2. Compute Stage 1 reconstruction and RVQ tokens
         ↓
-3. Compute token surprisal through repeated L1 token masking
+3. Compute token surprisal through repeated L1 token masking  →  ALM-B binary mask
         ↓
 4. Heal checkerboard-masked tokens using Stage 2
         ↓
-5. Compute LPIPS between input and healed image(s)
+5. Compute LPIPS between input and healed image(s)  →  ALM-A binary mask
         ↓
 6. Aggregate native and TTA heatmaps, commonly with geomean
         ↓
 7. Smooth and threshold by Z-score using the calibration map
         ↓
-8. Compute Binary_Sum_Heatmap from the masked heatmap and binary threshold
+8. Binary_Sum_Heatmap = (ALM-A ∪ ALM-B) white-pixel count
         ↓
 9. Write per-slice JSON fields, including Binary_Sum_Heatmap and token_surprisal_hot_px
         ↓
@@ -627,6 +627,16 @@ Main output file: **`results_v4_zscore.json`**
 | `lpips_input_recon_sum_mask` | 🟡 AYNU | Auxiliary reconstruction diagnostic |
 | `sharpness_score`, `artifact_flag` | 🟡 AYNU | Auxiliary artifact/sharpness diagnostics |
 | `iteration_metrics` | 🟡 AYNU | Auxiliary iteration/refinement diagnostics |
+
+### 🖼️ CORE Visualization Outputs (per slice, saved by default)
+
+| File | Panels | Purpose |
+|---|---|---|
+| `_Final_ALM_Heatmap.png` | 🟢 Input · Score · **ALM-A (LPIPS binary)** · **ALM-B (Token binary)** · Overlay · **A∪B combined mask** | Direct visual verification that the saved binary mask matches `Binary_Sum_Heatmap` |
+| `_Anomaly_Overlay.png` | Input · Healed · Heatmap overlay · LPIPS+Token overlay · LPIPS raw · **Binary+Token map (A∪B)** | Clinical-style overlay with annotation boxes |
+| `_full.png` | Multi-panel diagnostic figure | Full pipeline diagnostics (AYNU) |
+
+> ✅ `_Final_ALM_Heatmap.png` is the recommended figure for verifying anomaly localization: the rightmost panel (A∪B combined mask) is the exact binary map whose white-pixel count equals `Binary_Sum_Heatmap`.
 
 ---
 
@@ -748,9 +758,12 @@ Use this checklist when trying to reproduce the Pelvis experiment:
 | **Stage 2 positional encoding** | **3D RoPE** over row, column, slice | 2D RoPE over row/column |
 | **Codebook size** | 192 per RVQ level | 256 per RVQ level |
 | **Main ROC score** | `sum_all_bars_score = Σ_slices(...)` | Same sum-all-bars definition |
+| **Binary fusion** | ALM-A ∪ ALM-B (no erosion) | ALM-A ∪ ALM-B + edge erosion |
 | **Primary LPIPS reference** | Input-vs-healed/inpainted | Reconstruction-vs-healed/inpainted |
 | **File format** | `.npy` slices | Primarily `.npz` with key `arr` |
 | **Slice index importance** | Used for 3D RoPE and per-slice calibration | Not used for 2D RoPE |
+| **CORE heatmap output** | `_Final_ALM_Heatmap.png` (6 panels: input, score, ALM-A, ALM-B, overlay, A∪B) | Same |
+| **`_Anomaly_Overlay.png`** | 6 panels incl. Binary+Token map (A∪B) | 7 panels incl. Binary+Token map (A∪B) and erosion effect |
 
 ---
 
