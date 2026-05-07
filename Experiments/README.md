@@ -247,11 +247,7 @@ Both experiments use Recursive-AutoMask V4-style inference with token surprisal,
 | Main LPIPS calibration reference | `LPIPS(Stage 1 reconstruction, healed reconstruction)` | `LPIPS(input, healed)` |
 | Main LPIPS inference iteration 0 reference | `LPIPS(Stage 1 reconstruction, healed reconstruction)` | `LPIPS(input, healed)` |
 | Refinement/inpainting LPIPS reference | `LPIPS(Stage 1 reconstruction, inpainted reconstruction)` | `LPIPS(input, inpainted)` |
-| Token surprisal branch | Monte Carlo token masking / Stage 2 prediction | Monte Carlo token masking / Stage 2 prediction |
-| Binary mask fusion (ALM-A ∪ ALM-B) | LPIPS z-score binary (ALM-A) OR token-surprisal binary (ALM-B); no LPIPS backflow | LPIPS z-score binary (ALM-A) OR token-surprisal binary (ALM-B); no LPIPS backflow |
 | Post-fusion edge erosion | **Yes** — edge-aware erosion applied to final binary mask before scoring (args: `--binary-edge-erosion-iters`, `--binary-edge-erosion-kernel`, `--binary-center-protect-radius-ratio`) | **No** — not applied |
-| Per-slice token output | `token_surprisal_hot_px` | `token_surprisal_hot_px` |
-| Per-slice binary/perceptual output | `Binary_Sum_Heatmap` | `Binary_Sum_Heatmap` |
 
 > 💡 Because the LPIPS reference differs, `Binary_Sum_Heatmap` is not numerically identical between experiments even though it plays the same role in the final score formula. In both cases the patient score is still `sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)`.
 
@@ -275,19 +271,6 @@ Both experiments use Recursive-AutoMask V4-style inference with token surprisal,
 | Main aggregation function | `aggregate_fastmri_binary_token_patient_scores(...)` | `aggregate_patient_sum_of_all_bars(...)` |
 | Main ROC function | `compute_fastmri_roc_and_auc(...)` | `compute_patient_roc_and_auc(...)` |
 | Main patient-score key | `sum_all_bars_score` | `sum_all_bars_score` |
-| Backward-compatible alias | `binary_token_score` may alias corrected combined score | Not needed as primary name in the cleaned pelvis ROC path |
-| PR/AUPRC | Brain ROC script is ROC/AUROC-focused in the CORE path | Pelvis ROC script explicitly computes ROC/AUROC and PR/AUPRC in `compute_patient_roc_and_auc(...)` |
-| Normal-label policy | Included test-normal fastMRI patients are `label=0`; validation normals may be excluded by policy | `"orig"` cases are `label=0`; all others `label=1` |
-
-### Labeling differences
-
-| Issue | 🧠 Brain | 🦴 Pelvis |
-|---|---|---|
-| Normal class | Included fastMRI test-normal patients | Cases identified as `orig` / normal-reference |
-| Validation normals | Can be excluded from ROC unless intentionally included | Not the same fastMRI validation/test policy |
-| Anomaly class | Non-test-normal / non-excluded validation categories | Non-`orig` cases, including synthetic/clinical anomaly cohorts depending on inputs |
-
-> ⚠️ Always verify patient/case naming conventions before computing ROC on new data.
 
 ---
 
@@ -295,40 +278,16 @@ Both experiments use Recursive-AutoMask V4-style inference with token surprisal,
 
 | Topic | 🧠 Brain | 🦴 Pelvis | CORE relevance |
 |---|---|---|---|
-| Calibration statistic | Per-pixel normal LPIPS statistics | Per-pixel normal/reference LPIPS statistics | Both rely on calibration maps for Z-score thresholding. |
 | LPIPS calibration reference | Reconstruction-vs-healed | Input-vs-healed | Different heatmap semantics. |
-| Documented smoothing kernel default | 7 | 15 | Must match between calibration and inference within each experiment. |
+| Documented smoothing kernel default | 7 | 15 | Must match between calibration and inference within the same experiment. |
 | Documented heal patterns | `"4"` | `"2,3"` | Changes healing masks and heatmap generation. |
 | Documented token-surprisal samples | 100 | 50 | Changes token-surprisal stability/counts. |
 | Documented token mask ratio | 0.820 | 0.90 | Changes token-surprisal branch. |
-| Documented heatmap aggregation | Ensemble heatmap aggregation; no geomean default | `geomean` documented as current default | Aggregation affects `Binary_Sum_Heatmap`. |
-| Documented TTA | TTA/visualization switches supported | `--use-tta` enabled by default | TTA affects heatmap aggregation if active. |
+| Documented heatmap aggregation | Ensemble heatmap aggregation; `mean` default | `geomean` documented as current default | Aggregation affects `Binary_Sum_Heatmap`. |
 
 ---
 
-## 🏷️ Labels, Cohorts, and Patient Aggregation
-
-### 🧠 Brain aggregation
-
-Built around fastMRI-style fields such as `filename`, `path`, `category`, `case_folder`, inferred patient ID from filename/case metadata, and test-normal / validation-normal policy.
-
-```text
-sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
-```
-
-### 🦴 Pelvis aggregation
-
-Built around filename/case identifiers, `_slice_###` filename conventions, `orig` naming to identify normal/reference cases, and synthetic/clinical category metadata depending on input JSONs.
-
-```text
-sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
-```
-
-> ⚠️ The same patient-score formula does **not** mean the cohorts are labeled the same way. Label assignment policies are experiment-specific and must be checked before interpreting AUROC.
-
----
-
-## ✅ Reproducibility Checklist
+## ✅ Reproducibility Checklist for You!
 
 ### Shared checks
 
@@ -417,7 +376,7 @@ The important differences are:
 </tr>
 <tr>
 <td>6️⃣</td>
-<td>Binary mask fusion: both use <b>ALM-A ∪ ALM-B</b> only (no LPIPS backflow in either)</td>
+<td>Binary mask fusion: both use <b>ALM-A ∪ ALM-B</b> only. Important to keep correct. </td>
 </tr>
 <tr>
 <td>7️⃣</td>
@@ -429,17 +388,17 @@ The important differences are:
 </tr>
 <tr>
 <td>9️⃣</td>
-<td>Pelvis explicitly reporting PR/AUPRC in the main merged ROC workflow</td>
+<td>Pelvis code contain even reporting of PR/AUPRC in the main merged ROC workflow if needed for extra analysis. </td>
 </tr>
 </table>
 
-> ⚠️ When reporting AUROC, make sure both experiments are compared using the same **sum-all-bars** patient score and not an outdated one-arm score.
+> ⚠️ When reporting AUROC, make sure both experiments are compared using the same **sum-all-bars** patient score and not other things, unless you intentionally want that!
 
 ---
 
 <div align="center">
 
-### 🧠🦴 Two-Stage Unsupervised Anomaly Detection — Brain & Pelvic MRI
+### That's it, have fun!! 
 
 *Research code for medical image analysis using deep learning.*
 
