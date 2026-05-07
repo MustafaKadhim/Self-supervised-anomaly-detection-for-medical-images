@@ -2,14 +2,13 @@
 
 # 🔬 CORE-Relevant Differences Between Brain & Pelvis Experiments
 
-### *Brain vs. Pelvis Experiments*
-
 [![Brain MRI](https://img.shields.io/badge/🧠_Brain-IXI_/_fastMRI-blue.svg)]()
 [![Pelvis MRI](https://img.shields.io/badge/🦴_Pelvis-LUND--PROBE/Clinical-purple.svg)]()
-[![CORE](https://img.shields.io/badge/Focus-CORE_AUROC_Path-green.svg)]()
-[![Research](https://img.shields.io/badge/Status-Research_Code-yellow.svg)]()
+[![CORE](https://img.shields.io/badge/Focus-CORE_AUROC_Calculations-green.svg)]()
+</div>
 
-*A comparative reference for the cleaned Brain and Pelvis anomaly-detection experiments, focused on what directly affects the primary patient-level ROC/AUROC path.*
+<div align="left">
+A comparative reference for the cleaned Brain and Pelvis anomaly-detection experiments, focused on what directly affects the primary patient-level ROC/AUROC path.*
 
 </div>
 
