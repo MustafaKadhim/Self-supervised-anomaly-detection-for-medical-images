@@ -176,14 +176,14 @@ cd Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images
 #### 🦴 Pelvic MRI
 
 ```bash
-cd Pelvis_Experimentss
+cd Pelvis_Experiments
 pip install -r Pelvis_Experiments_requirements.txt
 ```
 
 Start with:
 
 ```text
-Pelvis_Experimentss/README_updated.md
+Pelvis_Experiments/README.md
 ```
 
 </td>
@@ -194,7 +194,7 @@ Pelvis_Experimentss/README_updated.md
 The Brain folder README lists the required scientific Python packages:
 
 ```text
-Brain_Experiments/README_updated.md
+Brain_Experiments/README.md
 ```
 
 Install the packages listed there, then run the Brain-specific training, calibration, inference, and ROC scripts with explicit paths.
@@ -302,8 +302,8 @@ This front page intentionally does **not** report numeric benchmark values. Use 
 .
 ├── Difference_Between_Experiments.md
 │
-├── Pelvis_Experimentss/
-│   ├── README_updated.md
+├── Pelvis_Experiments/
+│   ├── README.md
 │   ├── Model_Stage_1.py
 │   ├── Model_Stage_2.py
 │   ├── Train_framework.py
@@ -319,7 +319,7 @@ This front page intentionally does **not** report numeric benchmark values. Use 
 │   └── Pelvis_Experiments_requirements.txt
 │
 ├── Brain_Experiments/
-│   ├── README_updated.md
+│   ├── README.md
 │   ├── Model_Stage1.py
 │   ├── Model_Stage_2.py
 │   ├── Train_framework.py
