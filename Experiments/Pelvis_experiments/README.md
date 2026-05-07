@@ -601,7 +601,7 @@ Inside `recursive_automask_v4_zscore(...)`, the CORE flow is:
         ↓
 7. Smooth and threshold by Z-score using the calibration map
         ↓
-8. Binary_Sum_Heatmap = (ALM-A ∪ ALM-B) white-pixel count
+8. Binary_Sum_Heatmap = (ALM-A ∪ ALM-B) white-pixel count ##known as unified heatmap in Figure 1.d) in paper
         ↓
 9. Write per-slice JSON fields, including Binary_Sum_Heatmap and token_surprisal_hot_px
         ↓
