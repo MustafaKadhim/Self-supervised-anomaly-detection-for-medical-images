@@ -5,7 +5,7 @@
 ### *Brain vs. Pelvis Experiments*
 
 [![Brain MRI](https://img.shields.io/badge/🧠_Brain-IXI_/_fastMRI-blue.svg)]()
-[![Pelvis MRI](https://img.shields.io/badge/🦴_Pelvis-LUND--PROBE-purple.svg)]()
+[![Pelvis MRI](https://img.shields.io/badge/🦴_Pelvis-LUND--PROBE/Clinical-purple.svg)]()
 [![CORE](https://img.shields.io/badge/Focus-CORE_AUROC_Path-green.svg)]()
 [![Research](https://img.shields.io/badge/Status-Research_Code-yellow.svg)]()
 
