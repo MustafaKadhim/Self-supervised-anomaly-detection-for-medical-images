@@ -82,7 +82,7 @@ This document summarizes the **CORE-relevant** differences between the two clean
 | Topic | 🧠 Brain experiment | 🦴 Pelvis experiment | CORE consequence |
 |---|---|---|---|
 | Anatomy/domain | Brain MRI | Pelvic MRI | Different data distributions and preprocessing assumptions. |
-| Main healthy/training source | IXI T1 NIfTI-derived slices | LUND-PROBE-style normal/reference pelvic MRI slices | Different source cohorts and file preparation scripts. |
+| Main normal/training source | IXI T1 NIfTI-derived slices | LUND-PROBE-style normal/reference pelvic MRI slices | Different source cohorts and file preparation scripts. |
 | Evaluation/anomaly workflow | fastMRI-style brain rendering/annotation workflow | Synthetic and clinical pelvic anomaly cohorts | Different cohort-label logic and folder conventions. |
 | Main ROC score | `sum_all_bars_score` | `sum_all_bars_score` | **Same intended score formula in both experiments.** |
 | ROC score formula | `Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)` | `Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)` | Both token surprisal and binary/perceptual arms must be included. |
@@ -147,7 +147,7 @@ Pelvis ROC score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
 
 The Brain repository is organized around:
 
-- healthy **IXI T1** NIfTI volumes for training-style slice generation;
+- normal **IXI T1** NIfTI volumes for training-style slice generation;
 - fastMRI-style `.h5` rendering / annotation workflows for evaluation/anomaly folders;
 - saved 2D slices, primarily as `.npz` files containing key `arr`.
 
@@ -304,7 +304,7 @@ Both experiments use Recursive-AutoMask V4-style inference with token surprisal,
 
 | Topic | 🧠 Brain | 🦴 Pelvis | CORE relevance |
 |---|---|---|---|
-| Calibration statistic | Per-pixel healthy LPIPS statistics | Per-pixel normal/reference LPIPS statistics | Both rely on calibration maps for Z-score thresholding. |
+| Calibration statistic | Per-pixel normal LPIPS statistics | Per-pixel normal/reference LPIPS statistics | Both rely on calibration maps for Z-score thresholding. |
 | LPIPS calibration reference | Reconstruction-vs-healed | Input-vs-healed | Different heatmap semantics. |
 | Documented smoothing kernel default | 7 | 15 | Must match between calibration and inference within each experiment. |
 | Documented heal patterns | `"4"` | `"2,3"` | Changes healing masks and heatmap generation. |
