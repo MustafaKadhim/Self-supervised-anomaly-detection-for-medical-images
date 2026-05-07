@@ -3,16 +3,16 @@ Recursive-AutoMask V4 with Population-Based Z-Score Normalization
 ===================================================================
 
 Key Innovation:
-- Calibration Phase: Run on healthy volunteers to compute per-pixel μ and σ
+- Calibration Phase: Run on normal volunteers to compute per-pixel μ and σ
 - Inference Phase: Convert LPIPS to Z-scores using population statistics
 - Result: Regions with systematic high error (bowel, bone) → Z ≈ 0
          Real anomalies (tumors) → Z >> threshold
 
 Z-Score Formula:
-    Z = (LPIPS_test - μ_healthy) / (σ_healthy + ε)
+    Z = (LPIPS_test - μ_normal) / (σ_normal + ε)
 
 Two Modes:
-1. Calibration Mode (--calibration-mode): Process healthy volunteers, save μ/σ maps
+1. Calibration Mode (--calibration-mode): Process normal volunteers, save μ/σ maps
 2. Inference Mode (--calibration-map): Load calibration, apply Z-score normalization
 
 Author: Recursive-AutoMask V4 with Z-Score Calibration
@@ -55,7 +55,92 @@ except ImportError:
 # Heatmap colormap for visualizations
 HEATMAP_CMAP = "hot"
 
-# AYNU-purpose annotation constants kept before CORE for default-argument compatibility.
+
+def save_final_alm_heatmap(
+    input_img: np.ndarray,
+    alm_score_map: np.ndarray,
+    alm_binary_mask: np.ndarray,
+    save_path: str,
+    title: str = "",
+    score_name: str = "ALM score map",
+    alm_binary_mask_lpips: Optional[np.ndarray] = None,
+    alm_binary_mask_token: Optional[np.ndarray] = None,
+) -> None:
+    """Save the CORE final ALM heatmap used for qualitative inference review.
+
+    Six panels: input | continuous score | ALM-A (LPIPS binary) |
+    ALM-B (token surprisal binary) | overlay | combined binary mask (A∪B).
+    The combined binary mask must match Binary_Sum_Heatmap in the AUROC JSON.
+    """
+    input_img = np.asarray(input_img, dtype=np.float32)
+    score_map = np.nan_to_num(np.asarray(alm_score_map, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+    binary_mask = np.asarray(alm_binary_mask).astype(bool)
+
+    vmin = float(np.percentile(input_img, 0.1))
+    vmax = float(np.percentile(input_img, 99.0))
+    masked_score = np.where(binary_mask, score_map, 0.0)
+    overlay = masked_score.astype(float, copy=True)
+    overlay[~binary_mask] = np.nan
+
+    fig, axes = plt.subplots(1, 6, figsize=(30, 5))
+
+    # Panel 0: Input
+    axes[0].imshow(input_img, cmap="gray", vmin=vmin, vmax=vmax)
+    axes[0].set_title("Input", fontsize=13, fontweight="bold")
+    axes[0].axis("off")
+
+    # Panel 1: Continuous score map
+    im1 = axes[1].imshow(score_map, cmap=HEATMAP_CMAP)
+    axes[1].set_title(score_name, fontsize=13, fontweight="bold")
+    axes[1].axis("off")
+    plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+
+    # Panel 2: ALM-A — LPIPS perceptual arm binary mask
+    if alm_binary_mask_lpips is not None:
+        mask_a = np.asarray(alm_binary_mask_lpips).astype(bool)
+        axes[2].imshow(mask_a.astype(np.float32), cmap="gray", vmin=0, vmax=1)
+        axes[2].set_title(f"ALM-A (LPIPS arm)\nΣ={int(mask_a.sum())}", fontsize=13, fontweight="bold")
+    else:
+        axes[2].imshow(np.zeros_like(binary_mask, dtype=np.float32), cmap="gray", vmin=0, vmax=1)
+        axes[2].set_title("ALM-A (LPIPS arm)\nN/A", fontsize=13, fontweight="bold")
+    axes[2].axis("off")
+
+    # Panel 3: ALM-B — token surprisal arm binary mask
+    if alm_binary_mask_token is not None:
+        mask_b = np.asarray(alm_binary_mask_token).astype(bool)
+        axes[3].imshow(mask_b.astype(np.float32), cmap="gray", vmin=0, vmax=1)
+        axes[3].set_title(f"ALM-B (Token surprisal)\nΣ={int(mask_b.sum())}", fontsize=13, fontweight="bold")
+    else:
+        axes[3].imshow(np.zeros_like(binary_mask, dtype=np.float32), cmap="gray", vmin=0, vmax=1)
+        axes[3].set_title("ALM-B (Token surprisal)\nΣ=0 (disabled)", fontsize=13, fontweight="bold")
+    axes[3].axis("off")
+
+    # Panel 4: Score overlay on input (restricted to combined binary support)
+    axes[4].imshow(input_img, cmap="gray", vmin=vmin, vmax=vmax)
+    cmap = plt.cm.get_cmap(HEATMAP_CMAP).copy()
+    cmap.set_bad(alpha=0)
+    im4 = axes[4].imshow(overlay, cmap=cmap, alpha=0.65)
+    axes[4].set_title("Final ALM overlay\n(binary-score support)", fontsize=13, fontweight="bold", color="darkred")
+    axes[4].axis("off")
+    plt.colorbar(im4, ax=axes[4], fraction=0.046, pad=0.04)
+
+    # Panel 5: Combined binary mask (A∪B) — white-pixel sum == Binary_Sum_Heatmap
+    axes[5].imshow(binary_mask.astype(np.float32), cmap="gray", vmin=0, vmax=1)
+    axes[5].set_title(
+        f"Final ALM binary map (A∪B)\nBinary_Sum_Heatmap={int(binary_mask.sum())}",
+        fontsize=13,
+        fontweight="bold",
+    )
+    axes[5].axis("off")
+
+    if title:
+        plt.suptitle(title, fontsize=14, fontweight="bold")
+    plt.tight_layout(rect=[0, 0, 1, 0.93])
+    Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+# Visualization/annotation constants kept before CORE for default-argument compatibility.
 
 
 # =============================================================================
@@ -780,11 +865,11 @@ class ZScoreCalibration:
     Population-Based Z-Score Calibration for Anomaly Detection.
     
     Concept:
-    - Healthy tissue has CONSISTENT reconstruction error (high μ, low σ in certain regions)
+    - normal tissue has CONSISTENT reconstruction error (high μ, low σ in certain regions)
     - Anomalies have UNUSUAL reconstruction error (deviation from expected)
     
     Z-Score Formula:
-        Z = (LPIPS_test - μ_healthy) / (σ_healthy + ε)
+        Z = (LPIPS_test - μ_normal) / (σ_normal + ε)
     
     Result:
     - Regions with systematic high error (bowel, bone): Z ≈ 0 (expected error)
@@ -819,7 +904,7 @@ class ZScoreCalibration:
                     'sigma': data[f'sigma_slice_{idx}'],
                 }
         
-        print(f"  Loaded calibration from {self.n_samples} healthy samples")
+        print(f"  Loaded calibration from {self.n_samples} normal samples")
         print(f"  Smoothing kernel: {self.smoothing_kernel}")
         print(f"  μ range: [{self.mu.min():.4f}, {self.mu.max():.4f}]")
         print(f"  σ range: [{self.sigma.min():.4f}, {self.sigma.max():.4f}]")
@@ -935,16 +1020,16 @@ def run_calibration(
     flip_upside_down: bool = False,
 ) -> ZScoreCalibration:
     """
-    Run calibration on healthy volunteers.
+    Run calibration on normal volunteers.
     
-    This processes all healthy slices and computes per-pixel statistics:
-    - μ[h,w] = mean LPIPS error at each pixel across all healthy samples
-    - σ[h,w] = std LPIPS error at each pixel across all healthy samples
+    This processes all normal slices and computes per-pixel statistics:
+    - μ[h,w] = mean LPIPS error at each pixel across all normal samples
+    - σ[h,w] = std LPIPS error at each pixel across all normal samples
     
     Args:
         stage1, stage2: Models
         perceptual_loss: LPIPS loss
-        dataloader: DataLoader for healthy volunteers
+        dataloader: DataLoader for normal volunteers
         output_path: Path to save calibration (.npz)
         device: Device
         heal_steps, heal_temperature, heal_patterns: Healing parameters
@@ -957,7 +1042,7 @@ def run_calibration(
     """
     print("\n" + "="*70)
     print("Z-SCORE CALIBRATION MODE")
-    print("Processing healthy volunteers to compute population statistics...")
+    print("Processing normal volunteers to compute population statistics...")
     print("="*70)
     
     all_heatmaps = []
@@ -1086,7 +1171,7 @@ def run_calibration(
     # ---------------------------------------------------------
     # Compute Global Statistics
     # ---------------------------------------------------------
-    print(f"\nComputing statistics from {total_samples} healthy samples...")
+    print(f"\nComputing statistics from {total_samples} normal samples...")
 
     if total_samples == 0 or len(all_heatmaps) == 0:
         raise RuntimeError(
@@ -1195,7 +1280,7 @@ def run_calibration(
     ax.set_title('False Positive Prone Regions\n(High μ, Low σ)', fontsize=11)
     ax.axis('off')
     
-    plt.suptitle(f'Z-Score Calibration\n{total_samples} Healthy Samples', fontsize=14, fontweight='bold')
+    plt.suptitle(f'Z-Score Calibration\n{total_samples} normal Samples', fontsize=14, fontweight='bold')
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.savefig(viz_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
@@ -2189,7 +2274,7 @@ def run_inference_v4_zscore(
     first_heatmap_sum_thresh: float = 300.0,
     binary_mask_threshold: float = 0.10,
     binary_mask_iteration: int = 0,
-    binary_include_token_surprisal: bool = False,
+    binary_include_token_surprisal: bool = True,
     binary_token_surprisal_threshold: float = 0.0,
     lpips_rec_inp_threshold_back_to_binary_token_map: Union[float, Tuple[float, float]] = (0.0, 0.585),
     binary_edge_erosion_iters: int = 1,
@@ -2322,9 +2407,11 @@ def run_inference_v4_zscore(
             binary_sum_heatmap_overlap_lpips_backflow = 0.0
             binary_mask_eval_i = binary_mask_base_i.copy()
             token_surprisal_eval_i = None
+            alm_token_binary_for_viz: Optional[np.ndarray] = None  # ALM-B for _Final_ALM_Heatmap viz
             if binary_include_token_surprisal and pipeline_results.get("token_surprisal_map") is not None:
                 surprisal_i = pipeline_results["token_surprisal_map"][i, 0].cpu().numpy()
                 token_binary_i = (surprisal_i > float(binary_token_surprisal_threshold))
+                alm_token_binary_for_viz = token_binary_i  # capture before any gating
                 binary_sum_heatmap_token = float(token_binary_i.sum())
                 binary_sum_heatmap_overlap = float(np.logical_and(binary_mask_base_i, token_binary_i).sum())
                 binary_sum_heatmap = float(np.logical_or(binary_mask_base_i, token_binary_i).sum())
@@ -2332,14 +2419,9 @@ def run_inference_v4_zscore(
                 token_surprisal_eval_i = surprisal_i
 
             final_lpips_i = pipeline_results["lpips_recon_inpainted"][i, 0].cpu().numpy()
-            binary_mask_before_lpips_backflow_i = binary_mask_eval_i.copy()
-            lpips_backflow_mask_i, lpips_backflow_cutoff_i = build_lpips_backflow_mask(
-                final_lpips_i,
-                lpips_rec_inp_threshold_back_to_binary_token_map,
-            )
-            binary_sum_heatmap_lpips_backflow = float(lpips_backflow_mask_i.sum())
-            binary_sum_heatmap_overlap_lpips_backflow = float(np.logical_and(binary_mask_before_lpips_backflow_i, lpips_backflow_mask_i).sum())
-            binary_mask_eval_i = np.logical_or(binary_mask_eval_i, lpips_backflow_mask_i)
+            binary_sum_heatmap_lpips_backflow = 0.0
+            binary_sum_heatmap_overlap_lpips_backflow = 0.0
+            lpips_backflow_cutoff_i = 0.0
 
             binary_mask_eval_i = apply_edge_to_center_erosion(
                 binary_mask_eval_i,
@@ -2520,7 +2602,6 @@ def run_inference_v4_zscore(
                     binary_mask_iteration=binary_mask_iteration,
                     binary_include_token_surprisal=binary_include_token_surprisal,
                     binary_token_surprisal_threshold=binary_token_surprisal_threshold,
-                    lpips_rec_inp_threshold_back_to_binary_token_map=lpips_rec_inp_threshold_back_to_binary_token_map,
                     binary_edge_erosion_iters=binary_edge_erosion_iters,
                     binary_center_protect_radius_ratio=binary_center_protect_radius_ratio,
                     binary_edge_erosion_kernel=binary_edge_erosion_kernel,
@@ -2537,7 +2618,31 @@ def run_inference_v4_zscore(
                     detected_based_on_thresholds=result.get("detected_based_on_thresholds"),
                     binary_token_white_pixel_ratio=result.get("Binary_Sum_Heatmap_WhitePixel_Ratio"),
                 )
+
+                alm_heatmap_path = os.path.join(visualizations_dir, f"{base_name}_Final_ALM_Heatmap.png")
+                save_final_alm_heatmap(
+                    input_img=pipeline_results["input"][i, 0].detach().cpu().numpy(),
+                    alm_score_map=fused_eval_map_i,
+                    alm_binary_mask=binary_mask_eval_i,
+                    save_path=alm_heatmap_path,
+                    title=f"Final ALM heatmap used for Binary_Sum_Heatmap\n{category}/{case_folder}/{filename}",
+                    score_name="Final fused LPIPS + Token ALM score",
+                    alm_binary_mask_lpips=binary_mask_base_i,
+                    alm_binary_mask_token=alm_token_binary_for_viz,
+                )
     
+                if enable_visualizations and heatmap_ideas_generator and not heatmap_ideas_saved:
+                    ideas_heatmap = masked_score_i.astype(np.float32, copy=False)
+                    ideas_input = pipeline_results["input"][i, 0].detach().cpu().numpy()
+                    ideas_path = os.path.join(visualizations_dir, "heatmap_ideas.png")
+                    generate_heatmap_ideas_figure(
+                        input_img=ideas_input,
+                        heatmap=ideas_heatmap,
+                        save_path=ideas_path,
+                        title=f"Heatmap Overlay Ideas\n{category}/{case_folder}/{filename}",
+                    )
+                    heatmap_ideas_saved = True
+
     return {"slices": results_list}
 
 
@@ -2858,29 +2963,25 @@ def main():
     # Model paths
     parser.add_argument("--stage1-ckpt", type=str, default="/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/FastMRI_IXI_Augmented_lightningCheckpoints/FastMRI_stage1-epoch=099-val/loss=0.0891.ckpt")
     parser.add_argument("--stage2-ckpt", type=str, default="/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/FastMRI_IXI_Augmented_lightningCheckpoints/FastMRI_stage2-epoch=098-val/loss=2.1141.ckpt")
-    
     parser.add_argument("--data-dir", type=str, default="/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/FastMRI_Anomalies_Collection/FastMRI_ALL_Anomalies_ByLabel_BestSlice_with_Label_full_val/Validation_samples_FastMRI")
     parser.add_argument("--output-dir", type=str, default="/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/Inference_FastMRI_Results_SOTA_5p_figures_Rec_Heal__Automatic_ALLanomalies_full_val_with_figures")
-
     parser.add_argument("--anomaly-root-dir", type=str,
-                        #default="/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/FastMRI_Anomalies_Collection/FastMRI_Local_Anomalies_ByLabel_BestSlice_with_Label_SOTA",
                         default="/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/FastMRI_Anomalies_Collection/FastMRI_ALL_Anomalies_ByLabel_BestSlice_with_Label_full_val",
                         help="Root directory containing anomaly label folders")
     
-    parser.add_argument("--run-all-anomaly-folders", action="store_true",
-                        help="Run inference for each anomaly label folder under --anomaly-root-dir and save in output_dir/<label>")
-    # Mode selection
-    parser.add_argument("--calibration-mode", action="store_true",help="Run calibration on healthy volunteers (saves μ/σ maps)")
+    parser.add_argument("--run-all-anomaly-folders", action="store_true", help="Run inference for each anomaly label folder under --anomaly-root-dir and save in output_dir/<label>")
+
+    # Calibration
     parser.add_argument("--calibration-map", type=str, default="/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/Inference_FastMRI_Results_SOTA_5p_figures_Rec_Heal__Automatic_ALLanomalies_full_val/zscore_calibration.npz", help="Path to calibration .npz file (for inference mode)")
-    
+
+    # Annotation
     parser.add_argument("--annotation-csv", type=str, default="/home/mluser1/Musti_Anomaly_Detection/FastMRI_Sample_Work/Annotated_fastMRI_Brains_Detailed.csv",
                         help="Optional CSV with bounding boxes/labels for overlay")
     parser.add_argument("--no-annotation-boxes", action="store_true",
                         help="Disable annotation box overlay on Final LPIPS panel")
-    
+
     # Z-Score parameters
     parser.add_argument("--z-threshold", type=str, default="(-2.5 , 6.0)", help="Z-score threshold: single value (e.g. 1.25) or two-sided range (e.g. '(-4.5, 1.2)')")
-
     parser.add_argument("--z-epsilon", type=float, default=0.01,
                         help="Epsilon for numerical stability in Z-score computation")
     parser.add_argument("--smoothing-kernel", type=int, default=7,
@@ -2890,7 +2991,7 @@ def main():
                         help="How to aggregate LPIPS heatmaps across healed samples (use 'geomean' to match Smart)")
     parser.add_argument("--logsumexp-temp", type=float, default=1.0,
                         help="Temperature for logsumexp aggregation (higher = softer)")
-    
+
     # Data parameters
     parser.add_argument("--batch-size", type=int, default=320)
     parser.add_argument("--category", type=str, default=None)
@@ -2901,85 +3002,31 @@ def main():
     parser.add_argument("--case", type=str, default=None)
     parser.add_argument("--patient-filter", type=str, nargs="+", default=None,
                         help="Filter by specific patient filename(s). Can be exact filenames or substring patterns.")
-    parser.add_argument("--calibration-substring", type=str, default=None,
-                        help="Substring required in filenames during --calibration-mode (default: orig)")
-    parser.add_argument("--no-calibration-substring-filter", action="store_true",
-                        help="Disable automatic calibration filename substring filtering")
-    
-    # V4 Recursive parameters
-    parser.add_argument("--num-iterations", type=int, default=1)
-    parser.add_argument("--inter-iteration-dilation", type=int, default=1)
 
-    # Artifact guards
-    parser.add_argument("--blur-threshold", type=float, default=0.002,
-                        help="Sharpness (Laplacian variance) threshold; below -> artifact blur")
-#---------------------------------------------------------------------------------------------------------------------------------------------    
-#---------------------------------------------------------------------------------------------------------------------------------------------    
-#---------------------------------------------------------------------------------------------------------------------------------------------    
-    
     # Healing parameters
     parser.add_argument("--heal-steps", type=int, default=6)
     parser.add_argument("--heal-temperature", type=float, default=0.9)
     parser.add_argument("--heal-patterns", type=str, default="4")
-    
-    # Mask parameters (fallback)
-    parser.add_argument("--token-surprisal-clamp", type=float, default=5.0, 
-                        help="Clamp threshold for token surprisal NLL map (values <= threshold set to 0)")
 
+    # Token surprisal and binary fusion (CORE: directly affects AUROC score)
+    parser.add_argument("--token-surprisal-clamp", type=float, default=5.0,
+                        help="Clamp threshold for token surprisal NLL map (values <= threshold set to 0)")
     parser.add_argument("--binary-token-surprisal-threshold", type=float, default=5.0,
                         help="Token Surprisal threshold for inclusion in Binary Sum (default: >0)")
-
-    parser.add_argument(
-        "--LPIPS-rec-inp-threshold-back-to-binary-token-map",
-        "--LPIPS-in-inp-threshold-back-to-binary-token-map",
-        dest="lpips_rec_inp_threshold_back_to_binary_token_map",
-        type=str,
-        #default="(0, 0.35)",
-        default="(97, 0)",
-        help=(
-            "Backflow mode selector for LPIPS(rec, inp). "
-            "Use '(percentile, 0)' for percentile mode (e.g. '(95, 0)') "
-            "or '(0, threshold)' for fixed-threshold mode (e.g. '(0, 0.33)')."
-        ),
-    )
-
-#---------------------------------------------------------------------------------------------------------------------------------------------    
-#---------------------------------------------------------------------------------------------------------------------------------------------    
-#---------------------------------------------------------------------------------------------------------------------------------------------    
-
-    parser.add_argument("--mask-threshold", type=float, default=95.0)
-    parser.add_argument("--binary-threshold", type=float, default=0.585,
-                        help="Threshold on masked score for binary sum map visualization")
-    
-    parser.add_argument("--mask-dilation", type=int, default=1)
-
-    parser.add_argument("--token-mask-mode", type=str, default="max",
-                        choices=["max", "avg", "topk"],
-                        help="Token mask mode: max-pool, avg-pool, or top-k tokens")
-    parser.add_argument("--token-mask-avg-threshold", type=float, default=0.5,
-                        help="Avg-pool threshold for token mask (mode=avg)")
-    parser.add_argument("--token-mask-topk-ratio", type=float, default=0.1,
-                        help="Top-k ratio for token mask (mode=topk)")
-
     parser.add_argument("--token-surprisal-samples", type=int, default=100,
                         help="Number of random masks for token surprisal (pseudo-PLL)")
     parser.add_argument("--token-surprisal-mask-ratio", type=float, default=0.820,
                         help="Mask ratio per sample for token surprisal")
-    
-
     parser.add_argument("--no-token-surprisal", action="store_true",
                         help="Disable token surprisal scoring (faster)")
+    parser.add_argument("--binary-threshold", type=float, default=0.585,
+                        help="Threshold on masked score for binary sum map visualization")
+    parser.add_argument("--binary-include-token-surprisal", action="store_true", default=True,
+                        help="Add visible Token Surprisal (NLL) pixels to the Binary Sum / final ALM map (enabled by default)")
+    parser.add_argument("--no-binary-include-token-surprisal", action="store_false", dest="binary_include_token_surprisal",
+                        help="Disable Token Surprisal union in the Binary Sum / final ALM map")
 
-    parser.add_argument("--clamp-threshold", type=float, default=0.90,
-                        help="Threshold applied to sqrt(First × Last) for clamped sums/visualizations")
-    parser.add_argument("--pixle-sum-first-heatmap-thresh", type=float, default=300.0,
-                        help="Threshold for coloring the first masked heatmap sum (green below, red above)")
-
-    parser.add_argument("--binary-mask-iteration", type=int, default=0,
-                        help="Which iteration's masked score to binarize (0 = first, -1 = last)")
-    parser.add_argument("--binary-include-token-surprisal", action="store_true",
-                        help="Add visible Token Surprisal (NLL) pixels to the Binary Sum map (union)")
-    
+    # Edge erosion (Brain-specific CORE: applied to final ALM mask before AUROC scoring)
     parser.add_argument("--binary-edge-erosion-iters", type=int, default=2,
                         help="Edge-aware erosion strength: max erosion iterations at image borders (0 disables)")
     parser.add_argument("--binary-center-protect-radius-ratio", type=float, default=0.35,
@@ -2987,47 +3034,21 @@ def main():
     parser.add_argument("--binary-edge-erosion-kernel", type=int, default=13,
                         help="Kernel size for edge-aware binary erosion")
 
-
-    parser.add_argument("--Heatmap-overlay-viz-clamp", type=float, default=0.3,
-                        help="Clamp threshold for heatmap overlay visualization (values below set to 0)")
-    
-    # Inpainting parameters
-    parser.add_argument("--inpaint-steps", type=int, default=12)
-    parser.add_argument("--inpaint-temperature", type=float, default=0.5)
-    
-    # TTA
+    # TTA and device
     parser.add_argument("--use-tta", action="store_true", default=True)
     parser.add_argument("--no-tta", action="store_false", dest="use_tta")
     parser.add_argument("--flip-upside-down", action="store_true", default=False,
                         help="Flip input slices vertically before processing")
-    parser.add_argument("--annotation-flip-vertical", action="store_true", default=False,
-                        help="Flip annotation boxes vertically to match image orientation")
-    parser.add_argument("--annotation-flip-horizontal", action="store_true", default=False,
-                        help="Flip annotation boxes horizontally to match image orientation")
-    parser.add_argument(
-        "--annotation-preprocess-mode",
-        type=str,
-        default=ANNOTATION_PREPROCESS_LEGACY,
-        choices=[
-            ANNOTATION_PREPROCESS_LEGACY,
-            ANNOTATION_PREPROCESS_RENDER_FASTMRI,
-            ANNOTATION_PREPROCESS_MASK_PIPELINE,
-        ],
-        help=(
-            "How to preprocess annotation coordinates before overlay. "
-            "'legacy' keeps historical behavior; 'render_fastmri' applies coordinate-level vertical remap; "
-            "'mask_pipeline' rasterizes box masks and applies image-like preprocessing (flip/crop/resize) before projecting back to rectangles."
-        ),
-    )
-    
     parser.add_argument("--device", type=str, default="cuda:1")
+
+    # Output controls
     parser.add_argument("--save-all-visualizations", action="store_true", default=True)
     parser.add_argument(
         "--include-full-analysis-figure",
         action="store_true",
         default=False,
-        help="Enable generation of *_full.png analysis figures (disabled by default)",
-    )
+        help="Enable generation of *_full.png analysis figures (disabled by default)")
+    
     parser.add_argument("--no-figures-only-json", action="store_true",
                         help="Skip all figure generation and only emit the JSON output")
     parser.add_argument("--no-aggregation-figures", action="store_true",
@@ -3038,7 +3059,75 @@ def main():
                         help="Generate visual colormap comparison figure (heatmap_ideas.png) from first eligible sample")
     parser.add_argument("--aggregation-figures-max-samples", type=int, default=1,
                         help="Max samples per batch for aggregation/token mask comparison figures")
-    
+
+    # ── AYNU ── Available Yet Not AUROC-interesting ──────────────────────────────────
+    parser.add_argument("--calibration-mode", action="store_true",
+                        help="AYNU: Run calibration on normal volunteers (saves μ/σ maps)")
+    parser.add_argument("--calibration-substring", type=str, default=None,
+                        help="AYNU: Substring required in filenames during --calibration-mode (default: orig)")
+    parser.add_argument("--no-calibration-substring-filter", action="store_true",
+                        help="AYNU: Disable automatic calibration filename substring filtering")
+    parser.add_argument("--num-iterations", type=int, default=1,
+                        help="AYNU: Iterative refinement count; AUROC default is 1")
+    parser.add_argument("--inter-iteration-dilation", type=int, default=1,
+                        help="AYNU: Dilation between refinement iterations")
+    parser.add_argument("--blur-threshold", type=float, default=0.002,
+                        help="AYNU: Sharpness (Laplacian variance) threshold; below -> artifact blur")
+    parser.add_argument("--mask-threshold", type=float, default=95.0,
+                        help="AYNU: Percentile fallback mask threshold when no z-score map is used")
+    parser.add_argument("--mask-dilation", type=int, default=1,
+                        help="AYNU: Mask dilation for refinement/fallback masking")
+    parser.add_argument("--token-mask-mode", type=str, default="max",
+                        choices=["max", "avg", "topk"],
+                        help="AYNU: Token mask mode: max-pool, avg-pool, or top-k tokens")
+    parser.add_argument("--token-mask-avg-threshold", type=float, default=0.5,
+                        help="AYNU: Avg-pool threshold for token mask (mode=avg)")
+    parser.add_argument("--token-mask-topk-ratio", type=float, default=0.1,
+                        help="AYNU: Top-k ratio for token mask (mode=topk)")
+    parser.add_argument("--clamp-threshold", type=float, default=0.90,
+                        help="AYNU: Threshold applied to sqrt(First × Last) for clamped sums/visualizations")
+    parser.add_argument("--pixle-sum-first-heatmap-thresh", type=float, default=300.0,
+                        help="AYNU: Threshold for coloring the first masked heatmap sum (green below, red above)")
+    parser.add_argument("--binary-mask-iteration", type=int, default=0,
+                        help="AYNU: Which iteration's masked score to binarize (0 = first, -1 = last)")
+    parser.add_argument("--Heatmap-overlay-viz-clamp", type=float, default=0.3,
+                        help="AYNU: Clamp threshold for heatmap overlay visualization (values below set to 0)")
+    parser.add_argument("--inpaint-steps", type=int, default=12,
+                        help="AYNU: Targeted inpainting steps for iterative refinement")
+    parser.add_argument("--inpaint-temperature", type=float, default=0.5,
+                        help="AYNU: Targeted inpainting sampling temperature")
+    parser.add_argument(
+        "--LPIPS-rec-inp-threshold-back-to-binary-token-map",
+        "--LPIPS-in-inp-threshold-back-to-binary-token-map",
+        dest="lpips_rec_inp_threshold_back_to_binary_token_map",
+        type=str,
+        #default="(0, 0.35)",
+        default="(97, 0)",
+        help=(
+            "AYNU: (vestigial — backflow removed from binary fusion) Backflow mode selector for LPIPS(rec, inp). "
+            "Use '(percentile, 0)' for percentile mode (e.g. '(95, 0)') "
+            "or '(0, threshold)' for fixed-threshold mode (e.g. '(0, 0.33)')."
+        ),
+    )
+    parser.add_argument("--annotation-flip-vertical", action="store_true", default=False,
+                        help="AYNU: Flip annotation boxes vertically to match image orientation")
+    parser.add_argument("--annotation-flip-horizontal", action="store_true", default=False,
+                        help="AYNU: Flip annotation boxes horizontally to match image orientation")
+    parser.add_argument(
+        "--annotation-preprocess-mode",
+        type=str,
+        default=ANNOTATION_PREPROCESS_LEGACY,
+        choices=[
+            ANNOTATION_PREPROCESS_LEGACY,
+            ANNOTATION_PREPROCESS_RENDER_FASTMRI,
+            ANNOTATION_PREPROCESS_MASK_PIPELINE,
+        ],
+        help=(
+            "AYNU: How to preprocess annotation coordinates before overlay. "
+            "'legacy' keeps historical behavior; 'render_fastmri' applies coordinate-level vertical remap; "
+            "'mask_pipeline' rasterizes box masks and applies image-like preprocessing (flip/crop/resize) before projecting back to rectangles."
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -3159,7 +3248,7 @@ def main():
             print(f"Patient filter applied: {combined_patient_filter}")
 
         print("\n" + "="*70)
-        print("CALIBRATION MODE - Processing Healthy Volunteers")
+        print("CALIBRATION MODE - Processing normal Volunteers")
         print("="*70)
 
         calibration_path = os.path.join(args.output_dir, "zscore_calibration.npz")
@@ -3687,10 +3776,10 @@ def compute_bbox_detection_metrics(
     per_bbox_metrics = []
     sum_gt_pixels = 0
     sum_pred_inside = 0
-    sum_pred_outside_healthy = 0
+    sum_pred_outside_normal = 0
     sum_pred_inside_other_bboxes = 0
     sum_score_inside = 0.0
-    sum_score_outside_healthy = 0.0
+    sum_score_outside_normal = 0.0
     sum_score_inside_other_bboxes = 0.0
     tp_count = 0
 
@@ -3702,20 +3791,20 @@ def compute_bbox_detection_metrics(
                 continue
             other_boxes_mask |= other["mask"]
 
-        healthy_mask = np.logical_not(np.logical_or(target_mask, other_boxes_mask))
+        normal_mask = np.logical_not(np.logical_or(target_mask, other_boxes_mask))
         gt_pixels = int(target["pixels"])
         pred_inside = int(np.logical_and(pred_mask, target_mask).sum())
-        pred_outside_healthy = int(np.logical_and(pred_mask, healthy_mask).sum())
+        pred_outside_normal = int(np.logical_and(pred_mask, normal_mask).sum())
         pred_inside_other = int(np.logical_and(pred_mask, other_boxes_mask).sum())
         score_inside = float(score_map[target_mask].sum())
-        score_outside_healthy = float(score_map[healthy_mask].sum())
+        score_outside_normal = float(score_map[normal_mask].sum())
         score_inside_other = float(score_map[other_boxes_mask].sum())
         inside_ratio = float(pred_inside) / float(gt_pixels) if gt_pixels > 0 else 0.0
         tp_flag = bool(inside_ratio >= float(tp_inside_ratio_threshold))
 
         fp_ratio = None
         if pred_inside > 0:
-            fp_ratio = float(pred_outside_healthy) / float(pred_inside)
+            fp_ratio = float(pred_outside_normal) / float(pred_inside)
 
         precision = 0.0
         tp_value = 1.0 if tp_flag else 0.0
@@ -3730,10 +3819,10 @@ def compute_bbox_detection_metrics(
             "label": target["label"],
             "ground_truth_bbox_pixels": int(gt_pixels),
             "predicted_anomaly_pixels_inside_bbox": int(pred_inside),
-            "predicted_anomaly_pixels_outside_bbox_healthy": int(pred_outside_healthy),
+            "predicted_anomaly_pixels_outside_bbox_normal": int(pred_outside_normal),
             "predicted_anomaly_pixels_inside_other_bboxes_excluded": int(pred_inside_other),
             "anomaly_score_sum_inside_bbox": float(score_inside),
-            "anomaly_score_sum_outside_bbox_healthy": float(score_outside_healthy),
+            "anomaly_score_sum_outside_bbox_normal": float(score_outside_normal),
             "anomaly_score_sum_inside_other_bboxes_excluded": float(score_inside_other),
             "inside_bbox_detection_ratio": float(inside_ratio),
             "true_positive": bool(tp_flag),
@@ -3745,10 +3834,10 @@ def compute_bbox_detection_metrics(
 
         sum_gt_pixels += int(gt_pixels)
         sum_pred_inside += int(pred_inside)
-        sum_pred_outside_healthy += int(pred_outside_healthy)
+        sum_pred_outside_normal += int(pred_outside_normal)
         sum_pred_inside_other_bboxes += int(pred_inside_other)
         sum_score_inside += float(score_inside)
-        sum_score_outside_healthy += float(score_outside_healthy)
+        sum_score_outside_normal += float(score_outside_normal)
         sum_score_inside_other_bboxes += float(score_inside_other)
         if tp_flag:
             tp_count += 1
@@ -3758,7 +3847,7 @@ def compute_bbox_detection_metrics(
     aggregate_tp_value = 1.0 if aggregate_tp else 0.0
     aggregate_fp_ratio = None
     if sum_pred_inside > 0:
-        aggregate_fp_ratio = float(sum_pred_outside_healthy) / float(sum_pred_inside)
+        aggregate_fp_ratio = float(sum_pred_outside_normal) / float(sum_pred_inside)
 
     aggregate_precision = 0.0
     if aggregate_fp_ratio is not None:
@@ -3775,10 +3864,10 @@ def compute_bbox_detection_metrics(
         "highlighted_anomaly_pixels_binary_token": highlighted_pixels,
         "highlighted_anomaly_score_sum": float(highlighted_score_sum),
         "predicted_anomaly_pixels_inside_bbox": int(sum_pred_inside),
-        "predicted_anomaly_pixels_outside_bbox": int(sum_pred_outside_healthy),
+        "predicted_anomaly_pixels_outside_bbox": int(sum_pred_outside_normal),
         "predicted_anomaly_pixels_inside_other_bboxes_excluded": int(sum_pred_inside_other_bboxes),
         "anomaly_score_sum_inside_bbox": float(sum_score_inside),
-        "anomaly_score_sum_outside_bbox": float(sum_score_outside_healthy),
+        "anomaly_score_sum_outside_bbox": float(sum_score_outside_normal),
         "anomaly_score_sum_inside_other_bboxes_excluded": float(sum_score_inside_other_bboxes),
         "inside_bbox_detection_ratio": aggregate_inside_ratio,
         "true_positive": aggregate_tp,
@@ -3884,7 +3973,7 @@ def visualize_token_masking_comparison(
     plt.close(fig)
 
 # -----------------------------------------------------------------------------
-# Per-sample analysis figures  (AYNU)
+# Per-sample analysis figures  (CORE visualization)
 # -----------------------------------------------------------------------------
 
 
@@ -3897,7 +3986,7 @@ def visualize_v4_zscore(results: Dict, sample_idx: int = 0, title: str = "", sav
                         first_heatmap_sum_thresh: float = 300.0,
                         binary_mask_threshold: float = 0.10,
                         binary_mask_iteration: int = 0,
-                        binary_include_token_surprisal: bool = False,
+                        binary_include_token_surprisal: bool = True,
                         binary_token_surprisal_threshold: float = 0.0,
                         lpips_rec_inp_threshold_back_to_binary_token_map: Union[float, Tuple[float, float]] = (0.0, 0.585),
                         binary_edge_erosion_iters: int = 1,
@@ -4059,14 +4148,6 @@ def visualize_v4_zscore(results: Dict, sample_idx: int = 0, title: str = "", sav
             binary_mask_show = np.logical_or(binary_mask_base, token_binary)
 
         lpips_backflow_px = 0
-        lpips_rec_inp_np = to_np(iteration_history[iter_idx]["lpips_recon_inpainted"])
-        if lpips_rec_inp_np is not None:
-            lpips_backflow_mask, _ = build_lpips_backflow_mask(
-                lpips_rec_inp_np,
-                lpips_rec_inp_threshold_back_to_binary_token_map,
-            )
-            lpips_backflow_px = int(lpips_backflow_mask.sum())
-            binary_mask_show = np.logical_or(binary_mask_show, lpips_backflow_mask)
 
         binary_mask_show = apply_edge_to_center_erosion(
             binary_mask_show,
@@ -4099,13 +4180,13 @@ def visualize_v4_zscore(results: Dict, sample_idx: int = 0, title: str = "", sav
         box_suffix = f" | boxes={binary_box_count}" if binary_box_count else ""
         if binary_include_token_surprisal and results.get("token_surprisal_map") is not None:
             ax.set_title(
-                f"Binary+Token (iter {iter_idx})\nΣ={binary_sum:.0f} | T={token_hot_px} | ∩={overlap_px} | L={lpips_backflow_px}{box_suffix}",
+                f"Binary+Token map (A∪B, iter {iter_idx})\nΣ={binary_sum:.0f} | T={token_hot_px} | ∩={overlap_px}{box_suffix}",
                 fontsize=12,
                 fontweight='bold',
             )
         else:
             ax.set_title(
-                f"Binary Sum (iter {iter_idx}, > {binary_mask_threshold:.2f})\nΣ={binary_sum:.0f} | L={lpips_backflow_px}{box_suffix}",
+                f"Binary map (A∪B, iter {iter_idx}, > {binary_mask_threshold:.2f})\nΣ={binary_sum:.0f}{box_suffix}",
                 fontsize=12,
                 fontweight='bold',
             )
@@ -4570,16 +4651,15 @@ def visualize_v4_zscore(results: Dict, sample_idx: int = 0, title: str = "", sav
 # =============================================================================
 
 def visualize_anomaly_overlay(
-    results: Dict, 
-    sample_idx: int = 0, 
-    title: str = "", 
+    results: Dict,
+    sample_idx: int = 0,
+    title: str = "",
     save_path: str = None,
     heatmap_overlay_viz_clamp: float = 0.5,
     binary_mask_threshold: float = 0.10,
     binary_mask_iteration: int = 0,
-    binary_include_token_surprisal: bool = False,
+    binary_include_token_surprisal: bool = True,
     binary_token_surprisal_threshold: float = 0.0,
-    lpips_rec_inp_threshold_back_to_binary_token_map: Union[float, Tuple[float, float]] = (0.0, 0.585),
     binary_edge_erosion_iters: int = 1,
     binary_center_protect_radius_ratio: float = 0.40,
     binary_edge_erosion_kernel: int = 13,
@@ -4658,13 +4738,6 @@ def visualize_anomaly_overlay(
         binary_mask_show = np.logical_or(binary_mask_base, token_binary)
 
     lpips_backflow_px = 0
-    lpips_sel = iteration_history[iter_sel]["lpips_recon_inpainted"][sample_idx, 0].cpu().numpy()
-    lpips_backflow_mask, _ = build_lpips_backflow_mask(
-        lpips_sel,
-        lpips_rec_inp_threshold_back_to_binary_token_map,
-    )
-    lpips_backflow_px = int(lpips_backflow_mask.sum())
-    binary_mask_show = np.logical_or(binary_mask_show, lpips_backflow_mask)
 
     binary_mask_pre_erosion = binary_mask_show.copy()
 
@@ -4866,7 +4939,7 @@ def visualize_anomaly_overlay(
     box_suffix = f" | boxes={binary_box_count}" if binary_box_count else ""
     if binary_include_token_surprisal and results.get("token_surprisal_map") is not None:
         axes[5].set_title(
-            f"Binary+Token map\niter={iter_sel}, Σ={bin_sum}, T={token_hot_px}, ∩={overlap_px}, L={lpips_backflow_px}, ratio={bin_ratio_to_show * 100.0:.2f}%{box_suffix}",
+            f"Binary+Token map (A∪B)\niter={iter_sel}, Σ={bin_sum}, T={token_hot_px}, ∩={overlap_px}, ratio={bin_ratio_to_show * 100.0:.2f}%{box_suffix}",
             fontsize=13,
             fontweight='bold',
             color='black',
@@ -4874,7 +4947,7 @@ def visualize_anomaly_overlay(
         )
     else:
         axes[5].set_title(
-            f"Binary map\niter={iter_sel}, Σ={bin_sum}, L={lpips_backflow_px}, ratio={bin_ratio_to_show * 100.0:.2f}%{box_suffix}",
+            f"Binary map (A∪B)\niter={iter_sel}, Σ={bin_sum}, ratio={bin_ratio_to_show * 100.0:.2f}%{box_suffix}",
             fontsize=13,
             fontweight='bold',
             color='black',
