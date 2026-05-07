@@ -17,12 +17,13 @@ import matplotlib.pyplot as plt
 # CORE — AUROC pipeline
 # -----------------------------------------------------------------------------
 # Everything in this section is on the path that produces the per-slice
-# `Binary_Sum_Heatmap` field, which is the ONLY quantity consumed by the
-# patient-level ROC / AUROC computation in the Plot_Bars script.
-#
+# `Binary_Sum_Heatmap` field and the separate `token_surprisal_hot_px` field.
+# The patient-level ROC / AUROC score must match the pelvis definition:
+#     sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
 # Trace: model forward → ensemble_heal → LPIPS heatmap → binary mask fusion
 #        (masked_score ∪ token_surprisal ∪ lpips_backflow ∪ edge erosion)
-#        → Binary_Sum_Heatmap → patient aggregation → ROC / AUROC.
+#        → Binary_Sum_Heatmap, plus token_surprisal_hot_px
+#        → sum_all_bars_score → patient aggregation → ROC / AUROC.
 # =============================================================================
 # =============================================================================
 # -----------------------------------------------------------------------------
@@ -195,7 +196,7 @@ def is_validation_samples(tokens: Set[str], patient_id: str) -> bool:
     return any("validation_samples" in token for token in tokens)
 
 # -----------------------------------------------------------------------------
-# Patient-level binary-token aggregation  (CORE)
+# Patient-level sum-all-bars aggregation  (CORE)
 # -----------------------------------------------------------------------------
 
 
@@ -206,7 +207,7 @@ def aggregate_fastmri_binary_token_patient_scores(
     allowed_categories: Optional[Set[str]] = None,
     include_validation_normals: bool = False,
 ) -> List[Dict[str, object]]:
-    """Aggregate per-patient binary-token score for FastMRI ROC analysis."""
+    """Aggregate per-patient sum(token_surprisal_hot_px + Binary_Sum_Heatmap)."""
     patient_map: Dict[str, Dict[str, object]] = {}
 
     for item in results:
@@ -216,8 +217,9 @@ def aggregate_fastmri_binary_token_patient_scores(
         if allowed_categories and not matches_category(item.get("category"), allowed_categories):
             continue
 
+        token_val = item.get("token_surprisal_hot_px")
         binary_val = item.get("Binary_Sum_Heatmap")
-        if binary_val is None:
+        if token_val is None and binary_val is None:
             continue
 
         pid_raw = patient_id_from_item(item)
@@ -235,12 +237,18 @@ def aggregate_fastmri_binary_token_patient_scores(
                 "case_folders": set(),
                 "categories": set(),
                 "category_votes": {},
-                "binary_token_score": 0.0,
+                "sum_all_bars_score": 0.0,
+                "sum_token_surprisal_hot_px": 0.0,
+                "sum_binary_sum_heatmap": 0.0,
                 "num_slices": 0,
             }
 
         entry = patient_map[key]
-        entry["binary_token_score"] += float(binary_val)
+        token_float = float(token_val) if token_val is not None else 0.0
+        binary_float = float(binary_val) if binary_val is not None else 0.0
+        entry["sum_token_surprisal_hot_px"] += token_float
+        entry["sum_binary_sum_heatmap"] += binary_float
+        entry["sum_all_bars_score"] += token_float + binary_float
         entry["num_slices"] += 1
 
         cf = str(case_folder) if case_folder is not None else ""
@@ -293,7 +301,11 @@ def aggregate_fastmri_binary_token_patient_scores(
             "categories": categories,
             "case_folders": case_folders,
             "dominant_category": str(dominant_category),
-            "binary_token_score": float(entry["binary_token_score"]),
+            "sum_all_bars_score": float(entry["sum_all_bars_score"]),
+            "sum_token_surprisal_hot_px": float(entry["sum_token_surprisal_hot_px"]),
+            "sum_binary_sum_heatmap": float(entry["sum_binary_sum_heatmap"]),
+            # Backward-compatible alias for existing Brain output readers.
+            "binary_token_score": float(entry["sum_all_bars_score"]),
             "num_slices": int(entry["num_slices"]),
             "roc_class": roc_class,
             "include_in_roc": include_in_roc,
@@ -302,7 +314,7 @@ def aggregate_fastmri_binary_token_patient_scores(
             "label": label,
         })
 
-    return sorted(rows, key=lambda row: row["binary_token_score"], reverse=True)
+    return sorted(rows, key=lambda row: row["sum_all_bars_score"], reverse=True)
 
 
 
@@ -312,7 +324,7 @@ def merge_fastmri_json_payloads_for_roc(
     allowed_categories: Optional[Set[str]] = None,
     include_validation_normals: bool = False,
 ) -> Dict[str, object]:
-    """Merge FastMRI results and build patient-level binary-token scores."""
+    """Merge FastMRI results and build patient-level sum-all-bars scores."""
     unique_paths: List[Path] = []
     seen: Set[Path] = set()
     for p in input_paths:
@@ -385,6 +397,8 @@ def merge_fastmri_json_payloads_for_roc(
         "input_files": [str(p) for p in unique_paths],
         "source_summaries": source_summaries,
         "summary": summary_counts,
+        "merged_patient_scores_sum_all_bars": merged_patient_scores,
+        # Backward-compatible key used by existing Brain CLI/output paths.
         "merged_patient_scores_binary_token": merged_patient_scores,
         "merged_patient_summary": merged_patient_summary,
         "merged_results": merged_results,
@@ -595,7 +609,7 @@ def compute_fastmri_roc_and_auc(
     bootstrap_random_seed: Optional[int] = 42,
     ci_fpr_grid_size: int = 201,
 ) -> Dict[str, object]:
-    """Compute FastMRI patient-level ROC using binary_token_score and Test normals only."""
+    """Compute FastMRI patient-level ROC using sum_all_bars_score and Test normals only."""
     if bootstrap_samples < 0:
         raise ValueError("bootstrap_samples must be >= 0")
     if confidence_level <= 0.0 or confidence_level >= 1.0:
@@ -611,7 +625,7 @@ def compute_fastmri_roc_and_auc(
         raise ValueError("No ROC rows available after applying Test-only normal policy")
 
     y_true = [int(row["label"]) for row in roc_rows]
-    scores = [float(row.get("binary_token_score", 0.0)) for row in roc_rows]
+    scores = [float(row.get("sum_all_bars_score", row.get("binary_token_score", 0.0))) for row in roc_rows]
 
     positives = sum(y_true)
     negatives = len(y_true) - positives
@@ -715,7 +729,7 @@ def evaluate_threshold_on_patient_scores(
         if bool(row.get("include_in_roc")) and row.get("label") in (0, 1)
     ]
     y_true = [int(row["label"]) for row in rows]
-    scores = [float(row.get("binary_token_score", 0.0)) for row in rows]
+    scores = [float(row.get("sum_all_bars_score", row.get("binary_token_score", 0.0))) for row in rows]
 
     positives = sum(y_true)
     negatives = len(y_true) - positives
@@ -880,7 +894,7 @@ def plot_fastmri_roc_curve(
     ax.set_ylim(0.0, 1.0)
     ax.set_xlabel("False Positive Rate (1 - Specificity)")
     ax.set_ylabel("Sensitivity (True Positive Rate)")
-    ax.set_title("FastMRI ROC: Binary+Token patient sum")
+    ax.set_title("FastMRI ROC: sum(token_surprisal_hot_px + Binary_Sum_Heatmap)")
     ax.legend(loc="lower right")
     ax.grid(True, linestyle=":", linewidth=0.8, alpha=0.7)
 
@@ -1060,7 +1074,7 @@ def compute_fastmri_category_stratified_performance(
     if not anomaly_rows:
         raise ValueError("No anomaly rows available for category stratification")
 
-    normal_scores = [float(row.get("binary_token_score", 0.0)) for row in normal_rows]
+    normal_scores = [float(row.get("sum_all_bars_score", row.get("binary_token_score", 0.0))) for row in normal_rows]
     fp = sum(1 for score in normal_scores if score > threshold)
     tn = len(normal_scores) - fp
     fpr = fp / len(normal_scores)
@@ -1069,7 +1083,7 @@ def compute_fastmri_category_stratified_performance(
     by_category: Dict[str, List[float]] = {}
     for row in anomaly_rows:
         category = str(row.get("dominant_category") or row.get("source_id") or "Unknown")
-        by_category.setdefault(category, []).append(float(row.get("binary_token_score", 0.0)))
+        by_category.setdefault(category, []).append(float(row.get("sum_all_bars_score", row.get("binary_token_score", 0.0))))
 
     rows: List[Dict[str, object]] = []
     for category, scores in by_category.items():
@@ -1250,10 +1264,13 @@ def run_fastmri_roc_analysis(
         include_validation_normals=bool(args.include_validation_in_roc),
     )
 
-    merged_json_output = args.roc_merged_json_output or (output_root / "FastMRI_ROC_Merged_BinaryToken.json")
+    merged_json_output = args.roc_merged_json_output or (output_root / "FastMRI_ROC_Merged_SumAllBars.json")
     write_json_file(merged_payload, merged_json_output)
 
-    patient_scores = merged_payload.get("merged_patient_scores_binary_token", [])
+    patient_scores = merged_payload.get(
+        "merged_patient_scores_sum_all_bars",
+        merged_payload.get("merged_patient_scores_binary_token", []),
+    )
     if not isinstance(patient_scores, list) or not patient_scores:
         raise ValueError("FastMRI merged patient scores are empty; cannot run ROC analysis")
 
@@ -1268,6 +1285,8 @@ def run_fastmri_roc_analysis(
 
     fixed_threshold = float(args.binary_token_patient_threshold)
     fixed_eval = evaluate_threshold_on_patient_scores(patient_scores, fixed_threshold)
+    roc_metrics["fixed_threshold_evaluation_sum_all_bars_patient_threshold"] = fixed_eval
+    # Backward-compatible alias for older Brain result readers.
     roc_metrics["fixed_threshold_evaluation_binary_token_patient_threshold"] = fixed_eval
 
     target_fpr = float(args.roc_target_fpr)
@@ -1282,10 +1301,10 @@ def run_fastmri_roc_analysis(
         **two_pct_reference,
     }
 
-    roc_metrics_output = args.roc_metrics_output or (output_root / "FastMRI_ROC_binary_token_metrics.json")
+    roc_metrics_output = args.roc_metrics_output or (output_root / "FastMRI_ROC_sum_all_bars_metrics.json")
     write_json_file(roc_metrics, roc_metrics_output)
 
-    roc_output = args.roc_output or (output_root / "FastMRI_ROC_binary_token_curve.png")
+    roc_output = args.roc_output or (output_root / "FastMRI_ROC_sum_all_bars_curve.png")
     plot_fastmri_roc_curve(
         roc_metrics,
         roc_output,
@@ -1344,7 +1363,7 @@ def run_fastmri_roc_analysis(
             summary.get("num_validation_excluded"),
         )
     logging.info(
-        "Fixed threshold (--binary-token-patient-threshold=%.3f): FPR=%.2f%%, sensitivity=%.2f%%",
+        "Fixed threshold on sum_all_bars_score (--binary-token-patient-threshold=%.3f): FPR=%.2f%%, sensitivity=%.2f%%",
         fixed_threshold,
         100.0 * float(fixed_eval.get("fpr", 0.0)),
         100.0 * float(fixed_eval.get("sensitivity", 0.0)),
