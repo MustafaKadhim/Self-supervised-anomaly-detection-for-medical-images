@@ -6,8 +6,10 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-Lightning-orange.svg)](https://pytorch.org/)
 [![MONAI](https://img.shields.io/badge/MONAI-Medical_AI-red.svg)](https://monai.io/)
 [![Research](https://img.shields.io/badge/Status-Research_Code-yellow.svg)]()
+</div>
 
-*A two-stage unsupervised anomaly-detection framework that learns from normal/reference pelvic MRI slices and detects deviations in synthetic and clinical anomaly cohorts.*
+<div align="left">
+A two-stage unsupervised anomaly-detection framework that learns from normal/reference pelvic MRI slices and detects deviations in synthetic and clinical anomaly cohorts.
 
 </div>
 
