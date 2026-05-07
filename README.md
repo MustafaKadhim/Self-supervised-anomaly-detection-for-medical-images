@@ -136,8 +136,8 @@ The primary per-slice CORE fields are:
 
 | Field | Meaning |
 |---|---|
-| `Binary_Sum_Heatmap` | Binary/perceptual healing heatmap contribution |
-| `token_surprisal_hot_px` | Token-surprisal hot-pixel contribution |
+| `Binary_Sum_Heatmap` | Binary-positive pixel count from ALM-A ∪ ALM-B fusion (LPIPS z-score binary OR token-surprisal binary) |
+| `token_surprisal_hot_px` | Token-surprisal hot-pixel count after clamping |
 
 Both cleaned experiments aggregate them as:
 
@@ -214,6 +214,7 @@ Two independent cleaned experiment folders are provided.
 | **Stage 1** | RVQ-VAE, codebook size 192 per RVQ level |
 | **Stage 2** | Factorized MaskGIT / Fact-biT with **3D RoPE** |
 | **Main LPIPS reference** | Input-vs-healed/inpainted |
+| **Binary fusion** | ALM-A ∪ ALM-B (no post-fusion erosion) |
 | **Evaluation** | Patient-level ROC/AUROC and PR/AUPRC |
 
 Core entry points:
@@ -239,6 +240,7 @@ ROC_Curves_Calculations.py
 | **Stage 1** | RVQ-VAE, codebook size 256 per RVQ level |
 | **Stage 2** | Factorized MaskGIT with **2D RoPE** |
 | **Main LPIPS reference** | Reconstruction-vs-healed/inpainted |
+| **Binary fusion** | ALM-A ∪ ALM-B + edge-aware erosion before scoring |
 | **Evaluation** | Patient-level ROC/AUROC |
 
 Core entry points:
