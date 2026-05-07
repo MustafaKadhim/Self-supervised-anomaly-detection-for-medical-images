@@ -36,8 +36,7 @@ Final_Clean_to_Github_Pelvis/
 ├── ROC_Curves_Calculations.py               # Patient-level ROC/AUPRC and category analyses
 ├── config_yaml.yaml                         # Reference configuration summary; not auto-loaded by scripts
 ├── Instructions.md                          # Internal CORE/AYNU refactor blueprint
-├── Train_Val_Test_Exact_DataSplits_LUND_PROBE.json
-│                                             # Recorded train/val/test split information
+├── Train_Val_Test_Exact_DataSplits_LUND_PROBE.json # Recorded train/val/test split information                                          
 ├── preslice_volumes.py                      # NIfTI volume → per-slice .npy preprocessing
 ├── External_dataset.py                      # External cohort preprocessing/loading utilities
 ├── Simulation_inference_v4_extended_CJG.py  # Synthetic anomaly generation helpers
