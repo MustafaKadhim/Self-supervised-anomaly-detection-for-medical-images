@@ -1,6 +1,6 @@
 # Two-Stage Unsupervised Anomaly Detection for Brain MRI (IXI / fastMRI)
 
-This repository contains the cleaned Brain MRI implementation of a two-stage unsupervised anomaly-detection framework. The training pipeline learns only from healthy T1-weighted brain MRI slices and the inference pipeline detects deviations from the learned healthy distribution.
+This repository contains the cleaned Brain MRI implementation of a two-stage unsupervised anomaly-detection framework. The training pipeline learns only from normal/reference T1-weighted brain MRI slices and the inference pipeline detects deviations from the learned normal/reference distribution.
 
 The code has been organized around a **CORE vs. AYNU** concept:
 
@@ -91,7 +91,7 @@ The framework has two learned stages.
 
 | Stage | Model | Purpose |
 |---|---|---|
-| **Stage 1** | RVQ-VAE with ViT encoder, multi-scale encoder, residual vector quantization, PixelShuffle decoder | Learns a discrete latent representation of healthy brain appearance |
+| **Stage 1** | RVQ-VAE with ViT encoder, multi-scale encoder, residual vector quantization, PixelShuffle decoder | Learns a discrete latent representation of normal/reference brain appearance |
 | **Stage 2** | Factorized MaskGIT transformer | Learns distributions over Stage 1 codebook tokens and heals masked/suspect tokens |
 
 At inference, **Recursive-AutoMask V4** performs calibration, healing, perceptual comparison, binary-mask fusion, and optional targeted inpainting. The main heatmap branch is reconstruction-referenced:
@@ -217,7 +217,7 @@ data_dir/
 
 ## Data preparation
 
-### IXI healthy training data
+### IXI normal/reference training data
 
 Use `IXI_dataset_overview.py` to convert IXI T1 NIfTI volumes to 2D `.npz` slices.
 
@@ -404,13 +404,13 @@ Inference_Brain_Experiments.py
 
 `load_models(stage1_ckpt, stage2_ckpt, device)` loads Stage 1 and Stage 2 checkpoints. Stage 1 perceptual-loss keys are stripped during inference loading so that BiomedCLIP is not required for inference checkpoint loading.
 
-### Step 1 — healthy calibration
+### Step 1 — normal/reference calibration
 
-Calibration estimates per-pixel healthy LPIPS statistics:
+Calibration estimates per-pixel normal/reference LPIPS statistics:
 
 ```text
-mu[h, w]    = mean LPIPS reconstruction-vs-healed value over healthy calibration slices
-sigma[h, w] = std  LPIPS reconstruction-vs-healed value over healthy calibration slices
+mu[h, w]    = mean LPIPS reconstruction-vs-healed value over normal/reference calibration slices
+sigma[h, w] = std  LPIPS reconstruction-vs-healed value over normal/reference calibration slices
 ```
 
 Example:
@@ -420,7 +420,7 @@ python Inference_Brain_Experiments.py \
     --calibration-mode \
     --stage1-ckpt /path/to/stage1.ckpt \
     --stage2-ckpt /path/to/stage2.ckpt \
-    --data-dir /path/to/healthy_calibration_slices \
+    --data-dir /path/to/normal/reference_calibration_slices \
     --output-dir /path/to/calibration_output \
     --calibration-map /path/to/zscore_calibration.npz \
     --smoothing-kernel 7 \
@@ -612,12 +612,12 @@ For reproducibility, keep:
 
 Use this checklist when trying to reproduce the Brain experiment.
 
-- [ ] IXI healthy T1 volumes were preprocessed with `IXI_dataset_overview.py`.
+- [ ] IXI normal/reference T1 volumes were preprocessed with `IXI_dataset_overview.py`.
 - [ ] Saved training arrays are `.npz` files with key `arr`.
 - [ ] Training/validation/test patient or slice splits are recorded and reused.
 - [ ] Stage 1 checkpoint path is recorded.
 - [ ] Stage 2 checkpoint path is recorded.
-- [ ] Calibration slices are healthy/normal and independent from anomaly evaluation data.
+- [ ] Calibration slices are normal/reference/normal and independent from anomaly evaluation data.
 - [ ] `--smoothing-kernel` is identical between calibration and inference.
 - [ ] The exact inference CLI command is saved.
 - [ ] `calibration_input_files.txt` is retained.
@@ -633,7 +633,7 @@ Use this checklist when trying to reproduce the Brain experiment.
 | Aspect | Brain MRI code in this folder | Pelvic version concept |
 |---|---|---|
 | Anatomy/domain | Brain MRI | Pelvic MRI |
-| Data sources | IXI healthy training data + fastMRI-style brain evaluation/rendering workflow | LUND-PROBE pelvis workflow |
+| Data sources | IXI normal/reference training data + fastMRI-style brain evaluation/rendering workflow | LUND-PROBE pelvis workflow |
 | Stage 2 positional encoding | 2D RoPE over row/column | 3D RoPE in the pelvic code |
 | Codebook size used by training script | 256 per RVQ level | 192 per level in the pelvic setup |
 | Main ROC score | patient sum of `Binary_Sum_Heatmap` | may differ by pelvis analysis script/version |
