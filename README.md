@@ -5,18 +5,22 @@
 
 <img src="figures/Anomaly_detection_official_logo_noBg.png" alt="Anomaly Detection Logo" width="400" class="center"/>
 <p align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=Inter&weight=600&size=28&duration=3000&pause=1000&color=58A6FF&center=true&vCenter=true&width=600&lines=Self-Supervised+Anomaly+Detection;Medical+Image+Analysis+Framework;Train+on+Healthy+Data+Only" alt="Typing SVG" />
+  <img src="https://readme-typing-svg.demolab.com?font=Inter&weight=600&size=28&duration=3000&pause=1000&color=58A6FF&center=true&vCenter=true&width=600&lines=Self-Supervised+Anomaly+Detection;Medical+Image+Analysis+Framework;Train+on+Normal+Data+Only" alt="Typing SVG" />
 </p>
 
 <p align="center">
   <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.8+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python"></a>
-  <a href="https://pytorch.org"><img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=flat-square&logo=pytorch&logoColor=white" alt="PyTorch"></a>
-  <a href="https://project-monai.github.io/"><img src="https://img.shields.io/badge/MONAI-0.9+-69D3A7?style=flat-square&logo=MONAI&logoColor=white" alt="MONAI"></a>
-  <a href="#"><img src="https://img.shields.io/badge/CUDA-11.8+-76B900?style=flat-square&logo=nvidia&logoColor=white" alt="CUDA"></a>
-  <br>
+  <a href="https://pytorch.org"><img src="https://img.shields.io/badge/PyTorch-Lightning-EE4C2C?style=flat-square&logo=pytorch&logoColor=white" alt="PyTorch Lightning"></a>
+  <a href="https://monai.io/"><img src="https://img.shields.io/badge/MONAI-Medical_AI-69D3A7?style=flat-square" alt="MONAI"></a>
+  <a href="#"><img src="https://img.shields.io/badge/Status-Research_Code-f1c232?style=flat-square" alt="Research code"></a>
+</p>
+
+
+  
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22863a?style=flat-square" alt="License"></a>
   <a href="https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/pulls"><img src="https://img.shields.io/badge/PRs-Welcome-1f6feb?style=flat-square" alt="PRs"></a>
 </p>
+
 
 <div align="center">
 
@@ -45,104 +49,167 @@
 
 *A research-ready framework for detecting anomalies in medical images, exclusively using normal training samples.*
 
-[🚀 Quickstart](#-quickstart) · [🔖 Citation](#-citation) · [🏗 Framework](#-framework) · [🧪 Experiments](#-experiments) · [📊 Results](#-results) · [📁 Repository Structure](#-repository-structure)
+*A two-stage framework that learns from normal/reference MRI slices and detects deviations from the learned healthy distribution using token surprisal and perceptual healing heatmaps.*
 
-
-## 🌟 Why This Framework?
-
-<table>
-  <tr>
-    <td width="50%">
-      <h3>✅ Normal-based Training</h3>
-      <p>Trains <b>exclusively on normal/healthy images</b> — zero anomalous labels required. Perfect for clinical settings where pathology annotations are scarce.</p>
-    </td>
-    <td width="50%">
-      <h3>🧩 Plug & Play Architecture</h3>
-      <p>Fully customizable tokenizers and transformers ready to adapt to new modalities and datasets.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <h3>📈 Reproducible Benchmarks</h3>
-      <p>Two complete experiments (Pelvic & Brain MRI) with configs, training scripts, and evaluation pipelines ready to run.</p>
-    </td>
-    <td width="50%">
-      <h3>🏥 Validated on Public Data</h3>
-      <p>Tested on <a href="https://datahub.aida.scilifelab.se/10.23698/aida/lund-probe">LUND-PROBE</a>, <a href="https://brain-development.org/ixi-dataset/">IXI</a>, <a href="https://fastmri.med.nyu.edu/">fastMRI</a>, and <a href="https://github.com/microsoft/fastmri-plus">fastMRI+</a>.</p>
-    </td>
-  </tr>
-</table>
-
+[🚀 Quickstart](#-quickstart) · [🏗 Framework](#-framework) · [🧪 Experiments](#-experiments) · [📊 Evaluation](#-evaluation) · [📁 Repository Structure](#-repository-structure) · [🔖 Citation](#-citation)
 
 </div>
-
 
 ---
 
-## 🔖 Citation
-If you find our work interesting, please cite us:
-```
-@inproceedings{
-placeholder,
-title={Catching MRI outliers: etc.......},
-author={M. Kadhim. V. Rogiwski etc........},
-booktitle={Phiro-2026 ........ },
-year={2026},
-url={Phiro-webpage ....... }
-}
-```
+## 🌟 Why This Repository?
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### ✅ Normal-data training
+
+The learned models are trained on **normal/healthy or reference MRI slices**. Ground-truth anomaly labels are **not used for model training**; labels are used only for evaluation, cohort assignment, plotting, and optional annotation overlays.
+
+</td>
+<td width="50%" valign="top">
+
+### 🧩 Two-stage token framework
+
+Both experiments use a **Stage 1 RVQ-VAE** to learn discrete image tokens and a **Stage 2 Factorized MaskGIT / Fact-biT transformer** to model token distributions and heal masked/suspect regions.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 📈 Reproducible experiment folders
+
+The cleaned Pelvis and Brain folders include model code, training entry points, inference/calibration scripts, ROC/AUPRC evaluation code, recorded split manifests, and experiment-specific README files.
+
+</td>
+<td width="50%" valign="top">
+
+### 🏥 Medical MRI research workflows
+
+The repository documents two MRI research workflows: **Pelvic MRI** based on a LUND-PROBE-style workflow and **Brain MRI** using IXI healthy data with fastMRI-style evaluation data.
+
+</td>
+</tr>
+</table>
+
+> ⚕️ **Research code only.** This repository is not a clinically validated tool and must not be used for clinical decision-making.
+
+---
 
 ## 🏗 Framework
 
-The core idea is fun & simple: train an autoencoder to perfectly reconstruct **healthy** images. At test time, anomalous regions produce high reconstruction error — forming a pixel-level **anomaly map**.
+The current cleaned code is **not** a single generic autoencoder package. It is organized around two complete experiment implementations that share the same high-level anomaly-detection idea:
 
-<div align="center">
-<img src="figures/Figure 1. Framework overview (10).png" alt="Framework Architecture" width="600"/>
-</div>
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                         INPUT MRI SLICE                         │
+└────────────────────────────┬────────────────────────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│          Stage 1: RVQ-VAE  →  reconstruction / RVQ tokens       │
+└────────────────────────────┬────────────────────────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│      Stage 2: Fact-biT  →  token healing                        │
+└────────────────────────────┬────────────────────────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│      LPIPS perceptual scoring + token surprisal scoring         │
+└────────────────────────────┬────────────────────────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Patient-level score:                                           │
+│  sum_all_bars_score = Σ_slices(token_surprisal_hot_px           │
+│                                + Binary_Sum_Heatmap)            │
+└────────────────────────────┬────────────────────────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                  ROC / AUROC and PR / AUPRC                     │
+└─────────────────────────────────────────────────────────────────┘
+```
 
+### 🟢 CORE vs. 🟡 AYNU
 
-> **Figure caption:** * To be added later!.*
+<table>
+<tr>
+<th width="15%">🟢 CORE</th>
+<td>Code and output fields that directly contribute to the primary patient-level AUROC/AUPRC pipeline.</td>
+</tr>
+<tr>
+<th width="15%">🟡 AYNU</th>
+<td><b>Available Yet Not AUROC-interesting</b>: auxiliary scripts, diagnostics, plots, localization overlays, alternative scores, and visualization utilities preserved for transparency and reproducibility.</td>
+</tr>
+</table>
+
+The primary per-slice CORE fields are:
+
+| Field | Meaning |
+|---|---|
+| `Binary_Sum_Heatmap` | Binary/perceptual healing heatmap contribution |
+| `token_surprisal_hot_px` | Token-surprisal hot-pixel contribution |
+
+Both cleaned experiments aggregate them as:
+
+```text
+sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
+```
 
 ---
 
 ## 🚀 Quickstart
 
-### 1. Installation
+### 1️⃣ Clone the repository
+
 ```bash
-# Clone repository
 git clone https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images.git
 cd Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images
-
-# Install in editable mode
-pip install -e .
 ```
 
+### 2️⃣ Choose an experiment
 
-### Minimal Example
+<table>
+<tr>
+<td width="50%" valign="top">
 
-```python
-import torch
-from framework import AnomalyAutoencoder
+#### 🦴 Pelvic MRI
 
-# Build model
-model = AnomalyAutoencoder(in_channels=1, latent_dim=256)
-
-# Forward pass
-x = torch.randn(1, 1, 128, 128)          # batch of 1 grayscale MRI slice
-out = model(x)
-
-print(out["reconstruction"].shape)        # (1, 1, 128, 128)
-print(out["anomaly_map"].shape)           # (1, 1, 128, 128)
-print(out["latent"].shape)                # (1, 256)
+```bash
+cd Pelvis_Experimentss
+pip install -r Pelvis_Experiments_requirements.txt
 ```
+
+Start with:
+
+```text
+Pelvis_Experimentss/README_updated.md
+```
+
+</td>
+<td width="50%" valign="top">
+
+#### 🧠 Brain MRI
+
+The Brain folder README lists the required scientific Python packages:
+
+```text
+Brain_Experiments/README_updated.md
+```
+
+Install the packages listed there, then run the Brain-specific training, calibration, inference, and ROC scripts with explicit paths.
+
+</td>
+</tr>
+</table>
+
+> ⚠️ Many scripts still contain absolute local default paths from the original experiment environments. For a new machine or GitHub user, **pass explicit CLI paths** and save the exact command used for each run.
 
 ---
 
-
-
 ## 🧪 Experiments
 
-Two independent experiments are provided, each with their own config, training script, and evaluation pipeline.
+Two independent cleaned experiment folders are provided.
 
 <table>
 <tr>
@@ -152,23 +219,23 @@ Two independent experiments are provided, each with their own config, training s
 
 | | |
 |---|---|
-| Modality | T2-weighted Pelvic MRI |
-| Dataset | PROMISE12 |
-| Image size | 128 × 128 |
-| Latent dim | 256 |
-| Epochs | 150 |
+| **Domain** | Pelvic MRI |
+| **Data workflow** | LUND-PROBE-style pelvic MRI workflow |
+| **Training format** | `.npy` slices with `_slice_###` filename indices |
+| **Stage 1** | RVQ-VAE, codebook size 192 per RVQ level |
+| **Stage 2** | Factorized MaskGIT / Fact-biT with **3D RoPE** |
+| **Main LPIPS reference** | Input-vs-healed/inpainted |
+| **Evaluation** | Patient-level ROC/AUROC and PR/AUPRC |
 
-```bash
-# Train
-python experiments/pelvic_mri/train.py
+Core entry points:
 
-# Evaluate
-python experiments/pelvic_mri/evaluate.py \
-  --checkpoint experiments/pelvic_mri/checkpoints/checkpoint_best.pth \
-  --visualize
+```text
+Model_Stage_1.py
+Model_Stage_2.py
+Train_framework.py
+Inference_Pelvis_Experiments.py
+ROC_Curves_Calculations.py
 ```
-
-📂 [`experiments/pelvic_mri/`](experiments/pelvic_mri/)
 
 </td>
 <td width="50%" valign="top">
@@ -177,23 +244,23 @@ python experiments/pelvic_mri/evaluate.py \
 
 | | |
 |---|---|
-| Modality | T1/T2-weighted Brain MRI |
-| Dataset | BraTS + IXI |
-| Image size | 128 × 128 |
-| Latent dim | 512 |
-| Epochs | 200 |
+| **Domain** | Brain MRI |
+| **Data workflow** | IXI healthy T1 data + fastMRI-style brain evaluation |
+| **Training format** | Primarily `.npz` files with key `arr` |
+| **Stage 1** | RVQ-VAE, codebook size 256 per RVQ level |
+| **Stage 2** | Factorized MaskGIT with **2D RoPE** |
+| **Main LPIPS reference** | Reconstruction-vs-healed/inpainted |
+| **Evaluation** | Patient-level ROC/AUROC |
 
-```bash
-# Train
-python experiments/brain_mri/train.py
+Core entry points:
 
-# Evaluate
-python experiments/brain_mri/evaluate.py \
-  --checkpoint experiments/brain_mri/checkpoints/checkpoint_best.pth \
-  --visualize
+```text
+Model_Stage1.py
+Model_Stage_2.py
+Train_framework.py
+Inference_Brain_Experiments.py
+ROC_Curve_Calculations.py
 ```
-
-📂 [`experiments/brain_mri/`](experiments/brain_mri/)
 
 </td>
 </tr>
@@ -201,96 +268,116 @@ python experiments/brain_mri/evaluate.py \
 
 ---
 
-## 📊 Benchmark Results
+## 📊 Evaluation
 
-> Results will be populated after running experiments. Submit a PR if you reproduce these benchmarks!
+### Primary patient-level score
 
-| Experiment | AUROC ↑ | AUPRC ↑ | FPR @ 95% TPR ↓ | Status |
-|:---|:---:|:---:|:---:|:---:|
-| **Pelvic MRI** | — | — | — | 🔄 Pending |
-| **Brain MRI**  | — | — | — | 🔄 Pending |
+The latest cleaned Pelvis and Brain READMEs both document the same primary score definition:
 
-<p align="center">
-  <sub>↑ Higher is better &nbsp;•&nbsp; ↓ Lower is better</sub>
-</p>
+```text
+sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
+```
+
+### Evaluation scripts
+
+| Experiment | Script | Main role |
+|---|---|---|
+| 🦴 Pelvis | `Pelvis_Experiments/ROC_Curves_Calculations.py` | Patient-level ROC/AUPRC, merged ROC workflow, category analyses |
+| 🧠 Brain | `Brain_Experiments/ROC_Curve_Calculations.py` | Patient-level ROC/AUROC for Brain outputs |
+
+### Benchmark table
+
+This front page intentionally does **not** report numeric benchmark values. Use the experiment-specific output JSON files and ROC scripts to reproduce metrics from the exact checkpoints, calibration maps, split manifests, and inference commands used in a run.
+
+| Experiment | Primary score | Status |
+|:---|:---|:---:|
+| **Pelvic MRI** | `sum_all_bars_score` | Reproduce from experiment outputs |
+| **Brain MRI** | `sum_all_bars_score` | Reproduce from experiment outputs |
 
 ---
 
 ## 📁 Repository Structure
 
-```
+```text
 .
-├── framework/                    # 🏗 Core reusable framework
-│   ├── models/
-│   │   ├── encoder.py            #   Residual convolutional encoder
-│   │   ├── decoder.py            #   U-Net style decoder with skip connections
-│   │   └── autoencoder.py        #   Full AnomalyAutoencoder model
-│   ├── losses/
-│   │   └── anomaly_loss.py       #   L1 + SSIM + Perceptual combined loss
-│   ├── datasets/
-│   │   └── medical_dataset.py    #   Generic medical image dataset loader
-│   ├── trainers/
-│   │   └── anomaly_trainer.py    #   Training loop with checkpointing + LR scheduling
-│   └── utils/
-│       ├── metrics.py            #   AUROC, AUPRC, FPR@95TPR, optimal threshold
-│       └── visualization.py      #   Anomaly map, ROC curve, training curve plots
+├── Front_page_README.md
+├── Difference_Between_Experiments.md
 │
-├── experiments/
-│   ├── pelvic_mri/               # 🦴 Pelvic MRI experiment
-│   │   ├── config.yaml           #   Hyperparameters
-│   │   ├── train.py              #   Training script
-│   │   ├── evaluate.py           #   Evaluation script
-│   │   └── data/README.md        #   Dataset preparation guide
-│   │
-│   └── brain_mri/                # 🧠 Brain MRI experiment
-│       ├── config.yaml
-│       ├── train.py
-│       ├── evaluate.py
-│       └── data/README.md
+├── Pelvis_Experimentss/
+│   ├── README_updated.md
+│   ├── Model_Stage_1.py
+│   ├── Model_Stage_2.py
+│   ├── Train_framework.py
+│   ├── dataset.py
+│   ├── Inference_Pelvis_Experiments.py
+│   ├── ROC_Curves_Calculations.py
+│   ├── config_yaml.yaml
+│   ├── Train_Val_Test_Exact_DataSplits_LUND_PROBE.json
+│   ├── preslice_volumes.py
+│   ├── External_dataset.py
+│   ├── Simulation_inference_v4_extended_CJG.py
+│   ├── Simluation_inference_v3_support_CJG.py
+│   └── Pelvis_Experiments_requirements.txt
 │
-├── figures/                      # 🎨 Visuals used in README
-│   ├── logo.svg
-│   └── architecture.svg
+├── Brain_Experiments/
+│   ├── README_updated.md
+│   ├── Model_Stage1.py
+│   ├── Model_Stage_2.py
+│   ├── Train_framework.py
+│   ├── dataset.py
+│   ├── Inference_Brain_Experiments.py
+│   ├── ROC_Curve_Calculations.py
+│   ├── config_yaml.yaml
+│   ├── Train_Val_Test_Exact_DataSplits_IXI_fastMRI.json
+│   ├── IXI_dataset_overview.py
+│   ├── Render_patient_slices_from_csv.py
+│   ├── collect_normal_slices.py
+│   ├── build_patient_Global_label_folders.py
+│   ├── build_patient_Local_label_folders.py
+│   └── Inference_heatmaps_ideas_generator.py
 │
-├── requirements.txt
-├── setup.py
-└── README.md
+├── Final_Code_Phiro_Pelvic_MRI/       # Previous/final Phiro pelvic code snapshot
+├── Final_Code_Phiro_Brain_MRI/        # Previous/final Phiro brain code snapshot
+└── zz_Gammalt_*/                      # Older archived development folders
 ```
 
 ---
 
-## ⚙️ Configuration
+## ⚙️ Reproducibility Notes
 
-Every aspect of each experiment is controlled by its `config.yaml`:
+For each experiment, keep:
 
-```yaml
-model:
-  in_channels: 1        # 1 = grayscale, 3 = RGB
-  latent_dim: 256       # Bottleneck size
-  base_channels: 32     # Feature map width
-  use_skip: true        # U-Net skip connections
+- [x] Exact training command(s)
+- [x] Exact inference command(s)
+- [x] Stage 1 and Stage 2 checkpoint paths / hashes if available
+- [x] Calibration `.npz` file and calibration settings
+- [x] Produced `results_v4_zscore.json`
+- [x] ROC/AUPRC output JSON and figures
+- [x] Train/validation/test split manifest
+- [x] The exact code folder version
 
-training:
-  num_epochs: 150
-  batch_size: 16
-  learning_rate: 1.0e-4
-  l1_weight: 1.0
-  ssim_weight: 1.0
-  perceptual_weight: 0.1
+Important safeguards:
 
-evaluation:
-  anomaly_score_reduction: "percentile95"  # mean | max | percentile95
+- Avoid slice-level leakage; use patient-level separation whenever possible.
+- Keep calibration/reference data independent from anomaly evaluation cohorts.
+- Preserve Pelvis `_slice_###` filename indices because they affect 3D RoPE and optional per-slice calibration lookup.
+- Do not log or publish patient-identifying information in filenames, W&B runs, plots, screenshots, or JSON outputs.
+
+---
+
+## 🔖 Citation
+
+A formal citation will be added when the associated manuscript/preprint is available.
+
+```bibtex
+@misc{kadhim_two_stage_mri_anomaly_detection,
+  title  = {Two-Stage Unsupervised Anomaly Detection for MRI},
+  author = {Kadhim, Mustafa and collaborators},
+  note   = {Research code; citation details to be updated upon publication}
+}
 ```
----
-
-
-## 📜 License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 ---
-
-<div align="center">
 
 Made with ❤️ for the medical imaging research community
 
