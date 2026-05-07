@@ -1437,39 +1437,6 @@ def parse_args() -> argparse.Namespace:
         help="Alias for --category.",
     )
     parser.add_argument("--slice-count-cutoff", type=int, default=5, help="Threshold for number of slices above metric cutoff to mark patient as anomaly (default: 5)")
-    parser.add_argument("--first-heatmap-threshold", type=float, default=10000.0, help="Threshold for total first-heatmap pixel sum to color patient bars (default: 500)")
-    # ---- AYNU-only CLI flags (consumed by run_plots_for_payload, not by ROC) ----
-    parser.add_argument("--threshold-lpips-in-rec", type=float, default=5000.0, help="Threshold for per-patient lpips_input_recon_sum_mask plot")
-    
-    parser.add_argument("--clamp-sum-threshold", type=float, default=140.0, help="Threshold for total clamped pixel sum to mark patient as anomaly (default: 450)")
-    parser.add_argument("--binary-heatmap-threshold", type=float, default=700.0, help="Threshold for per-patient Binary_Sum_Heatmap plot")
-    parser.add_argument("--sharpness-threshold", type=float, default=5.0, help="Threshold for per-patient total sharpness plot (anomaly if below)")
-    parser.add_argument("--sharpness-low-threshold", type=float, default=7.0, help="Stage-1 sharpness lower bound (anomaly if below)")
-    parser.add_argument("--sharpness-high-threshold", type=float, default=20.0, help="Stage-1 sharpness upper bound (anomaly if above)")
-    parser.add_argument(
-        "--combined-threshold",
-        type=float,
-        default=150.0,
-        help="Threshold for combined token_surprisal_hot_px + Binary_Sum_Heatmap (used for red bars)",
-    )
-    parser.add_argument(
-        "--min-red-bars-per-patient",
-        type=int,
-        default=0,
-        help="Patient is counted as anomaly when red-bar count is strictly greater than this value (default: 2)",
-    )
-    parser.add_argument(
-        "--sum-all-bars-threshold",
-        type=float,
-        default=80.0,
-        help="Threshold for per-patient sum of all combined bars (token_surprisal_hot_px + Binary_Sum_Heatmap)",
-    )
-    parser.add_argument(
-        "--binary-token-patient-threshold",
-        type=float,
-        default=1019.0,
-        help="Threshold for unique-patient Binary+Token sum plot (anomaly if above)",
-    )
     parser.add_argument(
         "--disable-fastmri-roc",
         action="store_true",
@@ -1579,6 +1546,39 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Output PNG path for FastMRI category stratified table figure.",
+    )
+
+    # ── AYNU ── Available Yet Not AUROC-interesting ──────────────────────────────────
+    parser.add_argument("--first-heatmap-threshold", type=float, default=10000.0, help="AYNU: Threshold for total first-heatmap pixel sum to color patient bars (default: 500)")
+    parser.add_argument("--threshold-lpips-in-rec", type=float, default=5000.0, help="AYNU: Threshold for per-patient lpips_input_recon_sum_mask plot")
+    parser.add_argument("--clamp-sum-threshold", type=float, default=140.0, help="AYNU: Threshold for total clamped pixel sum to mark patient as anomaly (default: 450)")
+    parser.add_argument("--binary-heatmap-threshold", type=float, default=700.0, help="AYNU: Threshold for per-patient Binary_Sum_Heatmap plot")
+    parser.add_argument("--sharpness-threshold", type=float, default=5.0, help="AYNU: Threshold for per-patient total sharpness plot (anomaly if below)")
+    parser.add_argument("--sharpness-low-threshold", type=float, default=7.0, help="AYNU: Stage-1 sharpness lower bound (anomaly if below)")
+    parser.add_argument("--sharpness-high-threshold", type=float, default=20.0, help="AYNU: Stage-1 sharpness upper bound (anomaly if above)")
+    parser.add_argument(
+        "--combined-threshold",
+        type=float,
+        default=150.0,
+        help="AYNU: Threshold for combined token_surprisal_hot_px + Binary_Sum_Heatmap (used for red bars)",
+    )
+    parser.add_argument(
+        "--min-red-bars-per-patient",
+        type=int,
+        default=0,
+        help="AYNU: Patient is counted as anomaly when red-bar count is strictly greater than this value (default: 2)",
+    )
+    parser.add_argument(
+        "--sum-all-bars-threshold",
+        type=float,
+        default=80.0,
+        help="AYNU: Threshold for per-patient sum of all combined bars (token_surprisal_hot_px + Binary_Sum_Heatmap)",
+    )
+    parser.add_argument(
+        "--binary-token-patient-threshold",
+        type=float,
+        default=1019.0,
+        help="AYNU: Threshold for unique-patient Binary+Token sum plot (anomaly if above)",
     )
     return parser.parse_args()
 
