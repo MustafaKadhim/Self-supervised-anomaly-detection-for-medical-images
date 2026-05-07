@@ -57,7 +57,7 @@ Final_Code_Phiro_Pelvic_MRI/
 │   └── Train_Val_Test_Exact_DataSplits... # Exact patient-level splits (JSON)
 ├── ⚙️ Config
 │   ├── config.yaml                        # Centralised configuration
-│   └── Pelvis_experiments_requirements.txt# Pinned Python environment
+│   └── Pelvis_Experiments_requirements.txt# Pinned Python environment
 ```
 
 ---
