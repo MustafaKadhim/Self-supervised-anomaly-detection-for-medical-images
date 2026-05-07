@@ -9,7 +9,7 @@
 [![MONAI](https://img.shields.io/badge/MONAI-Medical_AI-red.svg)](https://monai.io/)
 [![Research](https://img.shields.io/badge/Status-Research_Code-yellow.svg)]()
 
-*A two-stage unsupervised anomaly-detection framework that learns only from healthy T1-weighted brain MRI slices and detects deviations from the learned healthy distribution.*
+*A two-stage unsupervised anomaly-detection framework that learns only from normal T1-weighted brain MRI slices and detects deviations from the learned normal distribution.*
 
 </div>
 
@@ -30,7 +30,7 @@
 **🏗️ Architecture**
 - [Method Overview](#-method-overview)
 - [Stage 1: RVQ-VAE](#-stage-1--rvq-vae)
-- [Stage 2: Factorized MaskGIT](#-stage-2--factorized-maskgit)
+- [Stage 2: Fact-biT](#-stage-2--factorized-maskgit)
 
 </td>
 <td width="50%" valign="top">
@@ -58,7 +58,7 @@
 
 ## 🎯 Overview & Core Concept
 
-This repository contains the cleaned **Brain MRI implementation** of a two-stage unsupervised anomaly-detection framework. The training pipeline learns only from healthy T1-weighted brain MRI slices, and the inference pipeline detects deviations from the learned healthy distribution.
+This repository contains the cleaned **Brain MRI implementation** of a two-stage unsupervised anomaly-detection framework. The training pipeline learns only from normal T1-weighted brain MRI slices, and the inference pipeline detects deviations from the learned normal distribution.
 
 The code has been organized around a **CORE vs. AYNU** concept:
 
@@ -163,7 +163,7 @@ Final_Clean_to_Github_Brain/
 │
 ├── 🟢 CORE — Models & Pipeline
 │   ├── Model_Stage1.py                      # Stage 1 RVQ-VAE model
-│   ├── Model_Stage_2.py                     # Stage 2 Factorized MaskGIT model
+│   ├── Model_Stage_2.py                     # Stage 2 Fact-biT model
 │   ├── Train_framework.py                   # PyTorch Lightning training entry point
 │   ├── dataset.py                           # Slice Dataset/DataModule for .npz/.png
 │   ├── Inference_Brain_Experiments.py       # Recursive-AutoMask V4 inference + calibration
@@ -200,11 +200,11 @@ The framework has **two learned stages**:
 <tr>
 <td align="center"><b>1️⃣<br>Stage 1</b></td>
 <td><b>RVQ-VAE</b><br><sub>ViT encoder, multi-scale encoder, residual vector quantization, PixelShuffle decoder</sub></td>
-<td>Learns a discrete latent representation of healthy brain appearance</td>
+<td>Learns a discrete latent representation of normal brain appearance</td>
 </tr>
 <tr>
 <td align="center"><b>2️⃣<br>Stage 2</b></td>
-<td><b>Factorized MaskGIT transformer</b></td>
+<td><b>Fact-biT transformer</b></td>
 <td>Learns distributions over Stage 1 codebook tokens and heals masked/suspect tokens</td>
 </tr>
 </table>
@@ -269,7 +269,7 @@ L1 reconstruction loss
 
 ---
 
-## 🧩 Stage 2 — Factorized MaskGIT
+## 🧩 Stage 2 — Fact-biT
 
 📄 **File:** `Model_Stage_2.py`
 
@@ -352,7 +352,7 @@ data_dir/
 
 ## 🧪 Data Preparation
 
-### 🔹 IXI Healthy Training Data
+### 🔹 IXI normal Training Data
 
 Convert IXI T1 NIfTI volumes to 2D `.npz` slices:
 
@@ -526,13 +526,13 @@ Main script: **`Inference_Brain_Experiments.py`**
 
 `load_models(stage1_ckpt, stage2_ckpt, device)` loads Stage 1 and Stage 2 checkpoints. Stage 1 perceptual-loss keys are stripped during inference loading, so **BiomedCLIP is not required for inference**.
 
-### Step 1️⃣ — Healthy Calibration
+### Step 1️⃣ — normal Calibration
 
-Calibration estimates per-pixel healthy LPIPS statistics:
+Calibration estimates per-pixel normal LPIPS statistics:
 
 ```text
-mu[h, w]    = mean LPIPS (reconstruction vs. healed) over healthy calibration slices
-sigma[h, w] = std  LPIPS (reconstruction vs. healed) over healthy calibration slices
+mu[h, w]    = mean LPIPS (reconstruction vs. healed) over normal calibration slices
+sigma[h, w] = std  LPIPS (reconstruction vs. healed) over normal calibration slices
 ```
 
 ```bash
@@ -540,7 +540,7 @@ python Inference_Brain_Experiments.py \
     --calibration-mode \
     --stage1-ckpt /path/to/stage1.ckpt \
     --stage2-ckpt /path/to/stage2.ckpt \
-    --data-dir /path/to/healthy_calibration_slices \
+    --data-dir /path/to/normal_calibration_slices \
     --output-dir /path/to/calibration_output \
     --calibration-map /path/to/zscore_calibration.npz \
     --smoothing-kernel 7 \
@@ -604,11 +604,11 @@ Inside `recursive_automask_v4_zscore(...)`, the CORE flow is:
         ↓
 2. Compute sharpness map/score (motion-blur awareness)
         ↓
-3. Compute token surprisal via Monte Carlo token masking
+3. Compute token surprisal via Monte Carlo token masking  →  ALM-B binary mask
         ↓
 4. Heal masked token patterns using Stage 2 MaskGIT
         ↓
-5. Compute LPIPS (Stage 1 recon ↔ healed/inpainted recon)
+5. Compute LPIPS (Stage 1 recon ↔ healed/inpainted recon)  →  ALM-A binary mask
         ↓
 6. Aggregate ensemble heatmaps
         ↓
@@ -616,7 +616,7 @@ Inside `recursive_automask_v4_zscore(...)`, the CORE flow is:
         ↓
 8. Optionally refine with targeted token inpainting
         ↓
-9. Fuse LPIPS binary mask + token-surprisal mask + LPIPS backflow + edge cleanup
+9. Binary_Sum_Heatmap = (ALM-A ∪ ALM-B) + edge cleanup
         ↓
 10. Write per-slice JSON fields (including Binary_Sum_Heatmap and token_surprisal_hot_px)
 ```
@@ -640,6 +640,16 @@ Main output file: **`results_v4_zscore.json`**
 | `num_true_positive_bboxes` | 🟡 AYNU | Auxiliary bounding-box localization count |
 | `inside_bbox_detection_ratio` | 🟡 AYNU | Auxiliary localization ratio |
 | `precision`, `f1_score` | 🟡 AYNU | Auxiliary per-slice localization metrics |
+
+### 🖼️ CORE Visualization Outputs (per slice, saved by default)
+
+| File | Panels | Purpose |
+|---|---|---|
+| `_Final_ALM_Heatmap.png` | 🟢 Input · Score · **ALM-A (LPIPS binary)** · **ALM-B (Token binary)** · Overlay · **A∪B combined mask** | Direct visual verification that the saved binary mask matches `Binary_Sum_Heatmap` |
+| `_Anomaly_Overlay.png` | Input · Healed · Heatmap overlay · LPIPS+Token overlay · LPIPS raw · **Binary+Token map (A∪B)** · Erosion effect | Clinical-style overlay with annotation boxes and detection status |
+| `_full.png` | Multi-panel diagnostic figure | Full pipeline diagnostics (AYNU) |
+
+> ✅ `_Final_ALM_Heatmap.png` is the recommended figure for verifying anomaly localization: the rightmost panel (A∪B combined mask) is the exact binary map whose white-pixel count equals `Binary_Sum_Heatmap`.
 
 ---
 
@@ -735,12 +745,12 @@ sum_all_bars_score
 
 Use this checklist when trying to reproduce the Brain experiment:
 
-- [ ] IXI healthy T1 volumes were preprocessed with `IXI_dataset_overview.py`
+- [ ] IXI normal T1 volumes were preprocessed with `IXI_dataset_overview.py`
 - [ ] Saved training arrays are `.npz` files with key `arr`
 - [ ] Training/validation/test patient or slice splits are recorded and reused
 - [ ] Stage 1 checkpoint path is recorded
 - [ ] Stage 2 checkpoint path is recorded
-- [ ] Calibration slices are healthy/normal and independent from anomaly evaluation data
+- [ ] Calibration slices are normal/normal and independent from anomaly evaluation data
 - [ ] `--smoothing-kernel` is identical between calibration and inference
 - [ ] The exact inference CLI command is saved
 - [ ] `calibration_input_files.txt` is retained
@@ -756,12 +766,15 @@ Use this checklist when trying to reproduce the Brain experiment:
 | Aspect | 🧠 Brain MRI (this folder) | 🦴 Pelvic Version |
 |---|---|---|
 | **Anatomy/domain** | Brain MRI | Pelvic MRI |
-| **Data sources** | IXI healthy + fastMRI-style brain evaluation | LUND-PROBE + clinical pelvis workflow |
+| **Data sources** | IXI normal + fastMRI-style brain evaluation | LUND-PROBE + clinical pelvis workflow |
 | **Stage 2 positional encoding** | 2D RoPE (row/column) | 3D RoPE |
 | **Codebook size** | 256 per RVQ level | 192 per level |
 | **Main ROC score** | `sum_all_bars_score = Σ_slices(...)` | Same sum-all-bars definition |
-| **Primary LPIPS reference** | Reconstruction-vs-healed/inpainted | Earlier: input-vs-healed |
-| **File format** | Primarily `.npz` with key `arr` | May use `.npy` depending on version |
+| **Binary fusion** | ALM-A ∪ ALM-B + edge erosion | ALM-A ∪ ALM-B (no erosion) |
+| **Primary LPIPS reference** | Reconstruction-vs-healed/inpainted | Input-vs-healed/inpainted |
+| **File format** | Primarily `.npz` with key `arr` | `.npy` slices |
+| **CORE heatmap output** | `_Final_ALM_Heatmap.png` (6 panels: input, score, ALM-A, ALM-B, overlay, A∪B) | Same |
+| **`_Anomaly_Overlay.png`** | 7 panels incl. Binary+Token map (A∪B) and erosion effect | 6 panels incl. Binary+Token map (A∪B) |
 
 ---
 
