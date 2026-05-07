@@ -12,23 +12,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import matplotlib.pyplot as plt
 
-# =============================================================================
-# =============================================================================
-# CORE — AUROC pipeline
-# -----------------------------------------------------------------------------
-# Everything in this section is on the path that produces the per-slice
-# `Binary_Sum_Heatmap` field and the separate `token_surprisal_hot_px` field.
-# The patient-level ROC / AUROC score must match the pelvis definition:
-#     sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
-# Trace: model forward → ensemble_heal → LPIPS heatmap → binary mask fusion
-#        (masked_score ∪ token_surprisal ∪ lpips_backflow ∪ edge erosion)
-#        → Binary_Sum_Heatmap, plus token_surprisal_hot_px
-#        → sum_all_bars_score → patient aggregation → ROC / AUROC.
-# =============================================================================
-# =============================================================================
-# -----------------------------------------------------------------------------
-# Filename / patient-id parsing  (CORE)
-# -----------------------------------------------------------------------------
+
 SLICE_STEM_RE = re.compile(r"_slice_(\d+)(.*)$")
 
 
