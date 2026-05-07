@@ -9,7 +9,7 @@
 </div>
 
 <div align="left">
-A two-stage unsupervised anomaly-detection framework that learns from normal/reference pelvic MRI slices and detects deviations in synthetic and clinical anomaly cohorts.
+A two-stage unsupervised anomaly-detection framework that learns from normal/reference pelvic MRI slices and detects deviations in synthetic and clinical anomaly cohorts, utlizing the LUND-PROBE as reference.
 
 </div>
 
