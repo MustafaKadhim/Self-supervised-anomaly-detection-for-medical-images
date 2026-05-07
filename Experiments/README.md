@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🔬 CORE-Relevant Differences
+# 🔬 CORE-Relevant Differences Between Brain & Pelvis Experiments
 
 ### *Brain vs. Pelvis Experiments*
 
