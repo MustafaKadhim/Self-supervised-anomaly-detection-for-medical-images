@@ -2,8 +2,6 @@
 
 # 🦴 Two-Stage Unsupervised Anomaly Detection for Pelvic MRI
 
-### *LUND-PROBE Implementation*
-
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-Lightning-orange.svg)](https://pytorch.org/)
 [![MONAI](https://img.shields.io/badge/MONAI-Medical_AI-red.svg)](https://monai.io/)
