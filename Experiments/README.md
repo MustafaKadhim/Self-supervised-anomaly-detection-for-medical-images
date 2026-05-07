@@ -74,7 +74,7 @@ This document summarizes the **CORE-relevant** differences between the two clean
 </td>
 </tr>
 </table>
-
+ 
 ---
 
 ## 🎯 Executive Summary
