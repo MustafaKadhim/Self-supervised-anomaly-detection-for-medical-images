@@ -300,7 +300,6 @@ This front page intentionally does **not** report numeric benchmark values. Use 
 
 ```text
 .
-├── Front_page_README.md
 ├── Difference_Between_Experiments.md
 │
 ├── Pelvis_Experimentss/
@@ -335,10 +334,8 @@ This front page intentionally does **not** report numeric benchmark values. Use 
 │   ├── build_patient_Global_label_folders.py
 │   ├── build_patient_Local_label_folders.py
 │   └── Inference_heatmaps_ideas_generator.py
-│
-├── Final_Code_Phiro_Pelvic_MRI/       # Previous/final Phiro pelvic code snapshot
-├── Final_Code_Phiro_Brain_MRI/        # Previous/final Phiro brain code snapshot
-└── zz_Gammalt_*/                      # Older archived development folders
+
+
 ```
 
 ---
