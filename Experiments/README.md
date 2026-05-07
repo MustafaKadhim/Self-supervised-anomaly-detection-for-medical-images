@@ -90,7 +90,6 @@ This document summarizes the **CORE-relevant** differences between the two clean
 | Stage 2 positional encoding | 2D RoPE over row/column | 3D RoPE over row/column/slice | Pelvis depends on slice-index conditioning; Brain does not. |
 | Main LPIPS reference | Reconstruction-vs-healed / reconstruction-vs-inpainted | Input-vs-healed / input-vs-inpainted | The perceptual heatmap branch is not identical. |
 | Main slice format | Primarily `.npz` with key `arr`; inference can also read `.npy` | `.npy` slices with `_slice_###` filename convention | Different preprocessing and dataset assumptions. |
-| ROC outputs | ROC/AUROC-focused FastMRI brain outputs | ROC/AUROC plus PR/AUPRC outputs | Pelvis ROC script explicitly reports PR/AUPRC in the main merged workflow. |
 
 ---
 
