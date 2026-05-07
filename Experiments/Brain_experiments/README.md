@@ -30,7 +30,7 @@
 **🏗️ Architecture**
 - [Method Overview](#-method-overview)
 - [Stage 1: RVQ-VAE](#-stage-1--rvq-vae)
-- [Stage 2: Fact-biT](#-stage-2--factorized-maskgit)
+- [Stage 2: Fact-biT](#-stage-2--fact-bit)
 
 </td>
 <td width="50%" valign="top">
@@ -91,7 +91,7 @@ The primary AUROC path flows through the following stages:
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│      Stage 2: MaskGIT  →  healing / inpainting                   │
+│      Stage 2: Fact-biT  →  healing / inpainting                   │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
