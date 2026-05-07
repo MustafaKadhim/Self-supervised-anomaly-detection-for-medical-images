@@ -5,7 +5,7 @@ This repository contains the cleaned Brain MRI implementation of a two-stage uns
 The code has been organized around a **CORE vs. AYNU** concept:
 
 - **CORE** = code that directly contributes to the AUROC-producing pipeline.
-- **AYNU** = “Available Yet Not Used” auxiliary code retained for reproducibility, debugging, training diagnostics, visualizations, bounding-box analysis, and alternative scores, but not on the primary AUROC path.
+- **AYNU** = “Available Yet Not ROC-interesting” auxiliary code retained for reproducibility, debugging, training diagnostics, visualizations, bounding-box analysis, and alternative scores, but not on the primary AUROC path.
 
 The primary AUROC path is:
 
