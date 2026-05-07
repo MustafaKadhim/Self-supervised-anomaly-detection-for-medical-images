@@ -111,7 +111,6 @@ sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
 | `token_surprisal_hot_px` | Count of hot pixels from the token-surprisal branch. | ✅ Yes |
 | `Binary_Sum_Heatmap` | Count of binary-positive pixels from the perceptual/binary heatmap branch after fusion/thresholding. | ✅ Yes |
 | `sum_all_bars_score` | Patient-level sum of the two per-slice quantities above. | ✅ Yes |
-| `binary_token_score` | In the Brain code, a backward-compatible alias for the corrected combined score. | ⚠️ Do not treat as a separate new score. |
 
 ### Why this matters
 
@@ -124,11 +123,11 @@ Pelvis ROC score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
 
 ---
 
-## 📊 Main Differences at a Glance
+## 📊 Main Code Differences in Files
 
 | Category | 🧠 Brain folder | 🦴 Pelvis folder |
 |---|---|---|
-| Stage 1 file | `Model_Stage1.py` | `Model_Stage_1.py` |
+| Stage 1 file | `Model_Stage_1.py` | `Model_Stage_1.py` |
 | Stage 2 file | `Model_Stage_2.py` | `Model_Stage_2.py` |
 | Inference file | `Inference_Brain_Experiments.py` | `Inference_Pelvis_Experiments.py` |
 | ROC file | `ROC_Curve_Calculations.py` | `ROC_Curves_Calculations.py` |
@@ -178,7 +177,7 @@ The Pelvis repository is organized around:
 |---|---|
 | NIfTI volume to per-slice `.npy` preprocessing | `preslice_volumes.py` |
 | External cohort preprocessing/loading utilities | `External_dataset.py` |
-| Synthetic anomaly support | `Simulation_inference_v4_extended_CJG.py`, `Simluation_inference_v3_support_CJG.py` |
+| Synthetic global/local anomaly simulations support | `Simulation_inference_v4_extended_CJG.py`, `Simluation_inference_v3_support_CJG.py` |
 
 Pelvis preprocessing:
 
@@ -215,7 +214,7 @@ Both experiments use the same broad two-stage idea:
 </tr>
 <tr>
 <td align="center"><b>2️⃣<br>Stage 2</b></td>
-<td><b>Factorized MaskGIT / Fact-biT transformer</b></td>
+<td><b>Factorized bi-directional transformer (Fact-biT)</b></td>
 <td>Learns token distributions and heals masked/suspect tokens using bidirectional masked prediction</td>
 </tr>
 </table>
@@ -224,10 +223,6 @@ Both experiments use the same broad two-stage idea:
 
 | Feature | 🧠 Brain | 🦴 Pelvis | CORE relevance |
 |---|---|---|---|
-| Input | Single-channel 2D brain slice, typically `1 × 256 × 256` | Single-channel 2D pelvic slice, typically `1 × 256 × 256` | Same final spatial target, different anatomy/preprocessing. |
-| Patch size | 8 | 8 | Both typically produce `32 × 32 = 1024` tokens. |
-| Encoder | ViT-style encoder, depth 8, 8 heads | ViT-style encoder, depth 8, 8 heads | Broadly similar. |
-| RVQ levels | 2 | 2 | Broadly similar. |
 | Codebook size | **256** per RVQ level | **192** per RVQ level | Checkpoints/token distributions are not interchangeable. |
 | Stage 1 training LR | `2e-4` (Brain README) | `1e-4` (Pelvis README) | Training dynamics differ. |
 | BiomedCLIP perceptual weight | 0.5 | 0.9 | Training objective differs. |
@@ -236,12 +231,9 @@ Both experiments use the same broad two-stage idea:
 
 | Feature | 🧠 Brain | 🦴 Pelvis | CORE relevance |
 |---|---|---|---|
-| Token streams | L1/L2 token streams | L1/L2 token streams | Similar broad design. |
 | Codebook size expected from Stage 1 | 256 per level | 192 per level | Stage 2 must match its Stage 1 checkpoint. |
 | Positional encoding | **2D RoPE** over row and column | **3D RoPE** over row, column, and slice position | Major CORE difference. |
 | Slice position conditioning | `slice_pos` may be accepted by signatures but is not part of Brain 2D RoPE | Slice index is used for anatomical position encoding | Pelvis depends more strongly on correct slice-index filenames. |
-| Stage 2 loss | `CE(masked L1) + 0.25 × CE(masked L2)` | Same documented loss form | Broadly similar training target. |
-| Label smoothing | 0.05 | 0.05 | Similar. |
 
 ---
 
