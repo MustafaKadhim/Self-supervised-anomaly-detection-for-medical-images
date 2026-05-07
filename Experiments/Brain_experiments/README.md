@@ -616,7 +616,7 @@ Inside `recursive_automask_v4_zscore(...)`, the CORE flow is:
         ↓
 8. Optionally refine with targeted token inpainting
         ↓
-9. Binary_Sum_Heatmap = (ALM-A ∪ ALM-B) + edge cleanup
+9. Binary_Sum_Heatmap = (ALM-A ∪ ALM-B) + (edge cleanup if needed) 
         ↓
 10. Write per-slice JSON fields (including Binary_Sum_Heatmap and token_surprisal_hot_px)
 ```
