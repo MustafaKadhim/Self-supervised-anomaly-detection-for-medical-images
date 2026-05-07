@@ -72,7 +72,7 @@ Then `compute_fastmri_roc_and_auc(...)` computes ROC/AUROC using `binary_token_s
 
 ### AYNU examples
 
-The following are useful and preserved, but they are not the primary AUROC score unless explicitly selected in additional analysis:
+The following are useful and preserved, but they are not relevant for primary AUROC calculations unless explicitly selected in additional analysis:
 
 - bounding-box overlap metrics
 - per-slice precision / F1 localization metrics
@@ -166,21 +166,13 @@ with label smoothing (`0.05`) and a mixed random/block masking strategy.
 
 ## Environment
 
-The original experiment used PyTorch Lightning, MONAI, vector quantization, LPIPS, and medical/scientific Python packages. A typical environment needs:
-
-```bash
-pip install torch pytorch-lightning monai vector-quantize-pytorch \
-    transformers open_clip_torch lpips nibabel h5py pandas pillow \
-    numpy scipy scikit-learn matplotlib tqdm imageio
-```
-
-If you need exact reproduction, pin versions from the environment used for the experiment. The README intentionally does not guarantee that the newest package versions will reproduce old checkpoints exactly.
+The experiments used Python packages available in the requirement.txt file above. 
 
 Notes:
 
 - Stage 1 training can use BiomedCLIP via `transformers` / `open_clip_torch`.
 - Inference uses LPIPS (`lpips` package, VGG backbone) for the spatial perceptual heatmap.
-- CUDA device defaults in scripts may point to `cuda:1`; override with CLI arguments if needed.
+- CUDA device defaults in scripts may point to `cuda:1`; override with CLI arguments if you work with single GPU.
 
 ---
 
@@ -203,7 +195,7 @@ where `arr` is a 2D `float32` image slice.
 The inference script stores the immediate parent folder name as `case_folder` in the output JSON. For patient-level aggregation, use one folder per patient/case when possible:
 
 ```text
-data_dir/
+case_folder_dir/
 ├── patient_001/
 │   ├── patient_001_slice_003.npz
 │   └── patient_001_slice_004.npz
@@ -230,7 +222,7 @@ python IXI_dataset_overview.py \
     --training-ready \
     --training-slice-start 128 \
     --training-slice-end 188 \
-    --z-clip "-3,3" \
+    --z-clip "-3,3" \     #here we selected z-score normalization with clamp(-3,3) 
     --intensity-scale none \
     --pattern "*.nii.gz" \
     --recursive
