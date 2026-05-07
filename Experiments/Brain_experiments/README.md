@@ -124,8 +124,8 @@ The script also computes `lpips_input_recon`, but this is mainly for auxiliary v
 Training loss:
 
 ```text
-L1 reconstruction loss
-+ BiomedCLIP perceptual loss, weight 0.5
+L1 reconstruction loss (MAE)
++ BiomedCLIP perceptual loss, with weight 0.5
 + RVQ commitment loss
 ```
 
