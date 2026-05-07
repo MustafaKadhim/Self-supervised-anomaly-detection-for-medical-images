@@ -56,7 +56,7 @@ Final_Code_Phiro_Pelvic_MRI/
 │   ├── External_dataset.py                # External cohort dataset loader
 │   └── Train_Val_Test_Exact_DataSplits... # Exact patient-level splits (JSON)
 ├── ⚙️ Config
-│   ├── config.yaml                        # Centralised configuration
+│   ├── config_yaml                       # Centralised configuration
 │   └── Pelvis_Experiments_requirements.txt# Pinned Python environment
 ```
 
