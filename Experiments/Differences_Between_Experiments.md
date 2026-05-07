@@ -1,10 +1,6 @@
 # CORE-Relevant Differences Between the Brain and Pelvis Experiments
 
-This document summarizes the **CORE-relevant** differences between the cleaned Brain and Pelvis experiment folders:
-
-1. `Final_Clean_to_Github_Brain/`
-2. `Final_Clean_to_Github_Pelvis/`
-
+This document summarizes the **CORE-relevant** differences between the cleaned Brain and Pelvis experiments.
 Here, **CORE** means the code and settings that directly affect the primary patient-level ROC/AUROC path. **AYNU** means auxiliary code that is useful for debugging, visualization, training diagnostics, localization/bounding-box analysis, synthetic-data utilities, or alternative analyses, but does not define the primary reported ROC/AUROC score unless explicitly selected in a separate analysis.
 
 > **Most important shared point:** both experiments should use the same patient-level ROC score definition:
