@@ -8,7 +8,7 @@
 </div>
 
 <div align="left">
-A comparative reference for the cleaned Brain and Pelvis anomaly-detection experiments, focused on what directly affects the primary patient-level ROC/AUROC path.*
+A comparative reference for the cleaned Brain and Pelvis anomaly-detection experiments, focused on what directly affects the primary patient-level ROC/AUROC path.
 
 </div>
 
