@@ -1916,7 +1916,7 @@ def parse_args() -> argparse.Namespace:
         help="Output PNG figure for stratified category performance table.",
     )
 
-    # AVAILABLE YET NOT USED parser arguments
+    # ── AYNU ── Available Yet Not AUROC-interesting ──────────────────────────────────
 
     parser.add_argument("--first-heatmap-threshold", type=float, default=10000.0, help="AYNU: Threshold for total first-heatmap pixel sum to color patient bars (default: 500)")
 
@@ -2394,7 +2394,7 @@ def main() -> None:
     return
 
 # =============================================================================
-# AVAILABLE YET NOT USED
+# AVAILABLE YET NOT ROC-Relevant
 # -----------------------------------------------------------------------------
 # The items below are not on the AUROC reproduction path. They are kept for
 # transparency and for readers interested in alternative analyses, training,
