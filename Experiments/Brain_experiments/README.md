@@ -5,7 +5,7 @@ This repository contains the cleaned Brain MRI implementation of a two-stage uns
 The code has been organized around a **CORE vs. AYNU** concept:
 
 - **CORE** = code that directly contributes to the AUROC-producing pipeline.
-- **AYNU** = “Available Yet Not ROC-interesting” auxiliary code retained for reproducibility, debugging, training diagnostics, visualizations, bounding-box analysis, and alternative scores, but not on the primary AUROC path.
+- **AYNU** = “Available Yet Not Used” auxiliary code retained for reproducibility, debugging, training diagnostics, visualizations, bounding-box analysis, and alternative scores, but not on the primary AUROC path.
 
 The primary AUROC path is:
 
@@ -36,8 +36,8 @@ Final_Clean_to_Github_Brain/
 ├── ROC_Curve_Calculations.py                # Patient-level ROC/AUROC and related metrics
 ├── config_yaml.yaml                         # Reference configuration summary; not auto-loaded by scripts
 ├── Instructions_Brain.md                    # Internal CORE/AYNU refactor instructions
-├── Train_Val_Test_Exact_DataSplits_IXI_fastMRI.json
-│                                             # Recorded train/val/test split information
+├── Train_Val_Test_Exact_DataSplits_IXI_fastMRI.json # Recorded train/val/test split information
+│                                             
 ├── IXI_dataset_overview.py                  # IXI NIfTI → training-ready .npz preprocessing
 ├── Render_patient_slices_from_csv.py        # fastMRI .h5 → .npz/PNG rendering utility
 ├── collect_normal_slices.py                 # Select normal slices from annotation CSVs
