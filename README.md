@@ -38,18 +38,7 @@
 </div>
 
 
-
-
-
-
-
-
-
-
-
-*A research-ready framework for detecting anomalies in medical images, exclusively using normal training samples.*
-
-*A two-stage framework that learns from normal/reference MRI slices and detects deviations from the learned healthy distribution using token surprisal and perceptual healing heatmaps.*
+*A two-stage framework that learns from normal/reference MRI slices and detects deviations from the learned normal distribution using token surprisal and perceptual healing heatmaps.*
 
 [🚀 Quickstart](#-quickstart) · [🏗 Framework](#-framework) · [🧪 Experiments](#-experiments) · [📊 Evaluation](#-evaluation) · [📁 Repository Structure](#-repository-structure) · [🔖 Citation](#-citation)
 
