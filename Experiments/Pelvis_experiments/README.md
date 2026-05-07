@@ -1,393 +1,293 @@
-# Two-Stage Anomaly Detection Framework for Pelvic MRI Experiments
+# Two-Stage Unsupervised Anomaly Detection for Pelvic MRI (LUND-PROBE)
 
-### Core Idea
+This repository contains the cleaned Pelvic MRI implementation of a two-stage unsupervised anomaly-detection framework. The models are trained on normal/reference pelvic MRI slices and evaluated on synthetic and clinical anomaly cohorts.
 
-**Stage 1 — RVQ-VAE (`Model_Stage_1.py`):** A ViT-based encoder compresses each 2D slice into a discrete token grid via Residual Vector Quantization (RVQ). A PixelShuffle CNN-based decoder reconstructs the image from quantized tokens.
+The code has been organized around a **CORE vs. AYNU** concept:
 
-**Stage 2 — Fact-biT (`Model_Stage_2.py`):** A bidirectional masked generative transformer learns the joint distribution over the Stage-1 token sequences. The model jointly predicts two codebook levels (structure L1 and texture L2) using factorized task conditioning and 3D Rotary Position Embeddings (RoPE) that encode row, column, and slice-axis positions.
+- **CORE** = code that directly contributes to the manuscript AUROC/AUPRC reproduction pipeline.
+- **AYNU** = “Available Yet Not AUROC-interesting” auxiliary code retained for transparency, debugging, training diagnostics, visualizations, calibration generation, alternative scores, and supplementary analyses, but not on the primary AUROC path.
 
-**Inference — Recursive-AutoMask V4 (`Inference_Pelvis_Experiments.py`):** At inference, the framework:
-1. "Heals" the input by regenerating tokens with deterministic checkerboard masks (ensemble),
-2. Computes an LPIPS perceptual difference map between input and healed image,
-3. Converts the map to Z-scores using population statistics from a calibration set of normal/reference images,
-4. Iteratively refines the anomaly mask with targeted inpainting,
-5. Sum the perceptual score with token-surprisal score to obtian a final score.
+The primary AUROC path in the cleaned Pelvis code is:
 
-**Evaluation — ROC curves (`ROC_Curves_Calculations.py`):** Patient-level ROC curves stratified by anomaly category (synthetic, clinical).
+```text
+input slice
+  → Stage 1 RVQ-VAE tokens/reconstruction
+  → Stage 2 Fact-biT healing
+  ├─ token-surprisal branch → token_surprisal_hot_px
+  └─ LPIPS healing branch → Binary_Sum_Heatmap
+  → per-patient sum_all_bars_score
+       = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
+  → ROC / AUROC and PR / AUPRC
+```
 
-
-# Table of Contents
-
-- [Core Idea](#core-idea)
-- [Repository Structure](#repository-structure)
-- [Architecture Details](#architecture-details)
-  - [Stage 1 — RVQ-VAE](#stage-1--rvq-vae)
-  - [Stage 2 — Fact-biT](#stage-2--fact-bit)
-- [Installation](#installation)
-- [Data Preparation](#data-preparation)
-  - [1. Preparations](#1-pre-slice-nifti-volumes-to-npy)
-    - [Training data](#training-data-only-normalreference-cases-no-anomalies)
-    - [Test / inference data](#test--inference-data-anomalous-cohorts)
-  - [2. Dataset splits](#2-dataset-splits)
-  - [3. Preprocessing pipeline](#3-preprocessing-pipeline-applied-during-training-data-loading)
-- [Training](#training)
-- [Inference Pipeline](#inference-pipeline)
-- [ROC‑analysis](#roc-analysis)
-- [Acknowledgements](#acknowledgements)
-
-
+Ground-truth anomaly labels are **not used for model training**. They are used only for evaluation, cohort/category assignment, plotting, and optional annotation overlays.
 
 ---
 
-## Repository Structure
+## Repository contents
 
+```text
+Final_Clean_to_Github_Pelvis/
+├── Model_Stage_1.py                         # Stage 1 RVQ-VAE model
+├── Model_Stage_2.py                         # Stage 2 Factorized MaskGIT / Fact-biT model
+├── Train_framework.py                       # PyTorch Lightning training entry point
+├── dataset.py                               # .npy slice Dataset/DataModule
+├── Inference_Pelvis_Experiments.py          # Recursive-AutoMask V4 inference + calibration
+├── ROC_Curves_Calculations.py               # Patient-level ROC/AUPRC and category analyses
+├── config_yaml.yaml                         # Reference configuration summary; not auto-loaded by scripts
+├── Instructions.md                          # Internal CORE/AYNU refactor blueprint
+├── Train_Val_Test_Exact_DataSplits_LUND_PROBE.json
+│                                             # Recorded train/val/test split information
+├── preslice_volumes.py                      # NIfTI volume → per-slice .npy preprocessing
+├── External_dataset.py                      # External cohort preprocessing/loading utilities
+├── Simulation_inference_v4_extended_CJG.py  # Synthetic anomaly generation helpers
+├── Simluation_inference_v3_support_CJG.py   # Support code for synthetic data generation
+└── Pelvis_Experiments_requirements.txt      # Pinned Python environment from the experiment
 ```
-Final_Code_Phiro_Pelvic_MRI/
-├── 🧠 Models
-│   ├── Model_Stage_1.py                   # Stage 1: ViT-RVQ-VAE
-│   └── Model_Stage_2.py                   # Stage 2: Fact-biT
-├── 🔥 Training & Inference
-│   ├── Train_frameworks.py                # Training entry-point (both stages)
-│   └── Inference_Pelvis_Experiments.py    # Recursive-AutoMask V4 pipeline
-├── 📊 Evaluation & Data
-│   ├── ROC_Curves_Calculations.py         # ROC / AUC evaluation utilities
-│   ├── dataset.py                         # NpySliceDataset + SliceDataModule
-│   ├── preslice_volumes.py                # Pre-slicing NIfTI volumes → .npy
-│   ├── External_dataset.py                # External cohort dataset loader
-│   └── Train_Val_Test_Exact_DataSplits... # Exact patient-level splits (JSON)
-├── ⚙️ Config
-│   ├── config_yaml                       # Centralised configuration
-│   └── Pelvis_Experiments_requirements.txt# Pinned Python environment
-```
+
+> **Important:** Several scripts contain absolute local default paths from the original experiment environment. For a new machine or GitHub user, pass explicit CLI paths or edit the defaults before running.
 
 ---
 
-## Architecture Details
+## CORE concept and main score
 
-### Stage 1 — RVQ-VAE (`Model_Stage_1.py`)
+The cleaned code is deliberately arranged so a reader can identify the AUROC-producing path quickly.
 
-#### Architecture Flow
+### CORE per-slice fields
 
-```
-Input (B, 1, 256, 256)
-    │
-    ▼
-┌─────────────────────────────────────┐
-│  PatchEmbedding                     │
-│  Conv2d(kernel=stride=patch_size)   │
-│  (B, 1, 256, 256) → (B, 1024, 256)  │
-└──────────────┬──────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────┐
-│  ViTEncoder                         │
-│  • Depth: 8                         │
-│  • Heads: 8                         │
-│  • Activation: GELU                 │
-│  • Dropout: 0.1                     │
-│  • Positional Embedding: learned    │
-│    (absolute)                       │
-└──────────────┬──────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────┐
-│  MultiScaleEncoder                  │
-│  • 3 Conv2d projections (stride     │
-│    1, 2, 4) fused via cross-attn    │
-└──────────────┬──────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────┐
-│  ResidualVQ                         │
-│  • Levels: 2                        │
-│  • Codebook size: 192 per level     │
-│  • kmeans_init, EMA decay: 0.85     │
-│  • Orthogonal reg: 0.1              │
-│  • Dead code threshold: 0.1         │
-└──────────────┬──────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────┐
-│  PixelShuffleDecoder                │
-│  • Stem: Conv2d → SiLU              │
-│  • 3 ResBlocks (GN8 + SiLU)         │
-│  • 3× PixelShuffle×2 upsample       │
-│  • 1-channel head                   │
-└──────────────┬──────────────────────┘
-               │
-               ▼
-    Output (B, 1, 256, 256)
+The two per-slice JSON fields consumed by the main patient-level ROC pipeline are:
+
+```text
+token_surprisal_hot_px
+Binary_Sum_Heatmap
 ```
 
+`ROC_Curves_Calculations.py` aggregates them with:
 
-#### Component Details
-
-| Component | Configuration |
-|:----------|:-------------|
-| **Input** | Single-channel 2D T2 pelvic MRI slice, `256×256` (z-score normalised per volume) |
-| **PatchEmbedding** | Non-overlapping `Conv2d`; `patch_size=8` → `32×32` token grid (`1024` tokens) |
-| **ViTEncoder** | `TransformerEncoder`, depth=`8`, heads=`8`, `GELU`, dropout=`0.1`; learned **absolute** position embeddings |
-| **MultiScaleEncoder** | Three `Conv2d` projections at stride `1/2/4`, fused via cross-attention |
-| **ResidualVQ** | 2-level residual quantization; `codebook_size=192` per level; `kmeans_init`, EMA decay=`0.85`, `orthogonal_reg_weight=0.1`, `threshold_ema_dead_code=0.1` |
-| **PixelShuffleDecoder** | Stem → 3 residual blocks → 3× `PixelShuffle×2` upsample → 1-ch head |
-| **Precision** | `float32` matmul set to `"medium"` via `torch.set_float32_matmul_precision` |
-
-#### Training Configuration
-
-| Parameter | Value |
-|:----------|:------|
-| **Reconstruction Loss** | `L1` |
-| **Perceptual Loss** | BiomedCLIP Cosine Feature Similarity (frozen vision tower) |
-| **Perceptual Weight** | `0.9` |
-| **VQ Commitment Loss** | Weight = `0.25` |
-| **Optimizer** | `AdamW(β=(0.9, 0.95), weight_decay=1e-4)` |
-| **Scheduler** | Cosine annealing LR over `max_epochs` |
-| **Gradient Clipping** | `1.0` |
-| **Precision** | `32` (float32) |
-| **Augmentation** | MONAI `RandScaleIntensity` (±0.1, p=0.33) + `RandAffine` (±5°, horizontal-only ±5px, p=0.33) |
-
-> **BiomedCLIP Details:** `microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224` (or `open_clip` equivalent). Grayscale slices replicated to 3 channels, resized to `224×224` with minmax normalisation. Loss = `1 − cosine_similarity`. Fallback: `PerceptualLossStub` (L1) if BiomedCLIP unavailable.
-
-#### Validation Visualization
-
-At the end of every validation epoch, up to **4 samples** from slices `40–48` are visualised as `2×2` panels:
-
-| Position | Content |
-|:---------|:--------|
-| **Top-Left** | Input |
-| **Top-Right** | Reconstruction |
-| **Bottom-Left** | Q1 Codebook Index Map |
-| **Bottom-Right** | Q2 Codebook Index Map |
-
-*PSNR reported per sample.* Saved to `RQC_ValExamples/`. Augmentation preview saved once at first training batch.
-
-
-### Stage 2 — Fact-biT (`Model_Stage_2.py`)
-
-#### Architecture Flow
-
-```
-L1 Tokens ──→ l1_embed (192+1) ──┐
-                                  ├──→ Task Embed ──→ Transformer Stack ──→ L1/L2 Logits (predictions)
-L2 Tokens ──→ l2_embed (192+1) ──┤          ↑
-                                  │    3D RoPE (row, col, slice)
-Task ID  ──→ task_embed (2) ──────┘    RMSNorm + SwiGLU + SDPA
+```text
+sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
 ```
 
+The patient-level ROC/AUPRC is computed from `sum_all_bars_score` by `compute_patient_roc_and_auc(...)`.
 
-#### Component Details
+### AYNU examples
 
-| Component | Configuration |
-|:----------|:-------------|
-| **Input Tokens** | `(B, seq_len, 2)` RVQ indices from Stage 1; `seq_len = 1024` |
-| **Token Embeddings** | Separate `nn.Embedding` for L1 (`codebook_size+1`) and L2 (`codebook_size+1`); `+1` = learnable mask token |
-| **Task Conditioning** | Learned `task_embed` (`2` entries): index `0` = predict L1, index `1` = predict L2; broadcast-added to all positions |
-| **Positional Encoding** | **3D RoPE** — head_dim split into thirds: `row`, `column`, `slice` (z-axis). Row/col: up to `64` positions; slice: up to `92` positions. Base frequency = `25,000`. No learned position embeddings. |
-| **Transformer** | `TransformerSDPA`: `TransformerBlockSDPA` stack — pre-norm `RMSNorm` (`eps=1e-6`), QKV linear → `F.scaled_dot_product_attention` (Flash SDP), `SwiGLU` FFN (`hidden_dim=4×embed_dim`, dropout=`0.0`) |
-| **Prediction Heads** | `head_l1` (`embed_dim → codebook_size`), `head_l2` (`embed_dim → codebook_size`) |
-| **Stack Depth** | `8` blocks, `8` heads |
+The following are useful and preserved, but they do not define the primary AUROC score unless explicitly used in separate analyses:
 
-> **Key Difference vs. Brain MRI:** Pelvic uses **3D RoPE** (row, col, slice) rather than 2D RoPE. The slice axis encodes the anatomical position along the z-axis.
-
-#### Training Configuration
-
-| Parameter | Value |
-|:----------|:------|
-| **Loss** | `CE(L1 masked) + l2_loss_weight × CE(L2 masked)` |
-| **Label Smoothing** | `0.05` |
-| **L2 Loss Weight** | `0.25` |
-| **Q Error Weight** | `0.1` |
-| **Optimizer** | `AdamW(β=(0.9, 0.98))` |
-| **Weight Decay** | `0.01` (non-embedding/bias/norm params); `0.0` otherwise |
-| **Scheduler** | Linear warmup (`2000` steps) → cosine decay |
-| **Slice Filtering** | Only slices `[30, 60]` used in training; out-of-range dropped |
-
-#### Masking Strategy of Tokens During Training
-
-| Token | Masking |
-|:------|:--------|
-| **L1** | 70% of time: ratio ∈ [0.50, 0.75]; 30% of time: ratio ∈ [0.20, 0.50] |
-| **L2** | ratio ∈ [0.15, 0.55] from `β(4, 4)` distribution |
-| **Block Masking** | 50% of batches use random rectangles (union of overlapping blocks) instead of random masking |
-| **Constraint** | At least 1 token masked per sample |
-| **Validation** | Random masking (fixed `mask_ratio=0.20`) + fixed centre-region mask (inner ~67%×67%) |
-
-
-**Anomaly scoring at inference:**
-
-Three signals are computed and combined with per-image z-score normalisation across spatial positions:
-
-```
-nll_l1    = -log p(true L1 token | all L1 masked, all L2 masked)
-nll_l2    = -log p(true L2 token | L1 visible, all L2 masked)
-q_error   = ||pre-quant token - quantized token||²
-
-anomaly_score = zscore(nll_l1)
-              + l2_loss_weight × zscore(nll_l2)
-              + q_error_weight × zscore(q_error)
-```
-
-The combined map is upsampled to pixel resolution by `scale_factor = patch_size` (bilinear).
-
-**Four inference scoring variants** are implemented in `model_stage2.py`:
-
-| Method | Function | Description |
-|--------|----------|-------------|
-| Standard | `compute_anomaly_map` | All tokens masked simultaneously |
-| Sliding window | `compute_anomaly_map_sliding` | Local window masking with Monte Carlo dropout, aggregated over all window positions |
-| Contextual | `compute_anomaly_map_contextual` | Partial masking (15%) to preserve neighbourhood context |
-| Iterative | `compute_anomaly_map_iterative` | MaskGIT iterative refinement, then NLL of true tokens |
+- `clamped_pixel_sum`
+- `lpips_input_recon_sum_mask`
+- sharpness totals and sharpness-based plots
+- per-patient bar plots of intermediate quantities
+- Stage 2 alternative anomaly-map methods
+- token-frequency diagnostics
+- calibration-generation figures
+- annotation overlay figures
+- synthetic-data generation utilities
 
 ---
 
-## Installation
+## Method overview
+
+The framework has two learned stages.
+
+| Stage | Model | Purpose |
+|---|---|---|
+| **Stage 1** | RVQ-VAE with ViT encoder, residual vector quantization, and PixelShuffle decoder | Learns a discrete latent representation of normal/reference pelvic MRI appearance |
+| **Stage 2** | Factorized MaskGIT / Fact-biT transformer | Learns token distributions and heals masked/suspect tokens using bidirectional masked prediction |
+
+At inference, **Recursive-AutoMask V4** computes two complementary anomaly signals:
+
+1. **Token surprisal:** repeated random masking of Stage 1 L1 tokens, followed by Stage 2 prediction and NLL scoring of the true tokens.
+2. **LPIPS healing heatmap:** Stage 2 heals checkerboard-masked tokens; spatial LPIPS compares the input image with healed/inpainted images; calibrated Z-score thresholding converts the heatmap to a binary detection mask.
+
+Unlike the cleaned Brain README, the Pelvis inference code’s main LPIPS branch is **input-referenced**:
+
+- calibration uses **LPIPS(input, healed)**
+- inference iteration 0 uses **LPIPS(input, healed)**
+- refinement iterations use **LPIPS(input, inpainted)**
+
+`lpips_input_recon` is computed for auxiliary diagnostics/visualizations, not for the main AUROC score.
+
+---
+
+## Architecture details
+
+### Stage 1 — `Model_Stage_1.py`
+
+`Stage1RVQVAE` maps a 2D grayscale pelvic MRI slice to RVQ tokens and reconstructs the slice.
+
+| Component | Implementation detail |
+|---|---|
+| Input | Single-channel 2D pelvic MRI slice, typically `1 × 256 × 256` |
+| Patch embedding | Conv2d with `kernel_size = stride = patch_size` |
+| Patch size in training script | `8`, giving `32 × 32 = 1024` tokens |
+| Encoder | ViT-style Transformer encoder, depth 8, 8 heads |
+| Multi-scale encoder | Present in the model and used by auxiliary/multiscale paths |
+| Quantizer | `ResidualVQ`, 2 quantizers, codebook size 192 in the training script |
+| Decoder | PixelShuffle decoder back to one image channel |
+| Forward output | `recon`, `indices`, `commit_loss`, `quant_error_map` |
+
+Stage 1 training loss:
+
+```text
+L1 reconstruction loss
++ BiomedCLIP perceptual loss, weight 0.9
++ RVQ commitment loss
+```
+
+Training uses AdamW with a cosine annealing learning-rate schedule. Stage 1 also contains training-time augmentation and validation visualization code, which is AYNU relative to the inference AUROC path.
+
+### Stage 2 — `Model_Stage_2.py`
+
+`FactorizedMaskGIT` predicts masked RVQ tokens from Stage 1.
+
+| Component | Implementation detail |
+|---|---|
+| Token levels | Separate L1 and L2 token streams |
+| Codebook size | 192 per level when loaded from the Stage 1 checkpoint used by `Train_framework.py` |
+| Transformer | SDPA transformer with RMSNorm and SwiGLU |
+| Position encoding | **3D RoPE** over row, column, and slice position |
+| Sequence length | Derived from Stage 1 image size and patch size; typically 1024 |
+| Stage 1 during Stage 2 training | Frozen and set to eval mode |
+
+Stage 2 training loss:
+
+```text
+CE(masked L1 tokens) + 0.25 × CE(masked L2 tokens)
+```
+
+with label smoothing (`0.05`) and a mixed random/block masking strategy.
+
+A key pelvic-specific feature is slice-position conditioning through 3D RoPE. The model extracts slice indices from filenames such as:
+
+```text
+patient_id_slice_045.npy
+```
+
+Slice indices are used for Stage 2 anatomical position encoding and for optional per-slice calibration statistics.
+
+---
+
+## Environment
+
+For the original environment, install the pinned requirements:
 
 ```bash
-# Python 3.10+, CUDA 12.8 (or compatible)
-pip install -r Pelvis_experiments_requirements.txt
+pip install -r Pelvis_Experiments_requirements.txt
 ```
 
-#### Key Dependencies (Pinned Versions)
+Important dependencies include:
 
-| Package | Version |
-|:--------|:--------|
-| `torch` | `2.8.0+cu128` |
-| `pytorch-lightning` | `2.5.5` |
-| `monai` | `1.5.1` |
-| `vector-quantize-pytorch` | `1.27.15` |
-| `transformers` | `4.57.2` |
-| `open_clip_torch` | `3.2.0` |
-| `lpips` | `0.1.4` |
-| `nibabel` | `5.3.2` |
-| `scipy` | `1.15.3` |
-| `scikit-image` | `0.25.2` |
-| `wandb` | `0.22.1` |
-| `numpy` | `2.1.2` |
+- PyTorch / PyTorch Lightning
+- MONAI
+- `vector-quantize-pytorch`
+- `transformers` and/or `open_clip_torch` for BiomedCLIP during Stage 1 training
+- `lpips` for spatial perceptual heatmaps during inference
+- nibabel, NumPy, SciPy, scikit-image, matplotlib, tqdm, W&B
+
+If you need exact checkpoint reproduction, use the pinned environment rather than unpinned latest package versions.
 
 ---
 
-## Data Preparation
+## Data format and preprocessing
 
-### 1. Pre-slice NIfTI volumes to .npy
+### Training slice format
 
-Training operates on 2D axial slices stored as individual `.npy` files for fast I/O.
+Training uses individual `.npy` slices. The expected filename pattern is:
 
-#### Training data (Only Normal/Reference cases, no anomalies)
+```text
+{patient_id}_slice_{idx:03d}.npy
+```
+
+Files that do not contain `_slice_` are ignored by `SliceDataModule`.
+
+### `dataset.py` preprocessing
+
+Each `.npy` slice is loaded and transformed as follows:
+
+1. load `float32` NumPy array
+2. rotate with `np.rot90(arr, k=-1)`
+3. add channel dimension with MONAI `EnsureChannelFirstD`
+4. resize to `320 × 320` using area interpolation
+5. center crop to `256 × 256`
+6. convert to tensor
+7. optional training augmentation if `augment=True` in the DataModule:
+   - horizontal flip
+   - small rotation around ±5°
+
+In the current `Train_framework.py`, `SliceDataModule` is instantiated without passing `augment=True`, so DataModule augmentations are disabled unless the script is modified. Stage 1 also has its own internal augmentation logic in `training_step`.
+
+### Pre-slicing LUND-PROBE / normal-reference NIfTI data
+
+`preslice_volumes.py` converts 3D NIfTI volumes into `.npy` slices.
 
 ```bash
 python preslice_volumes.py
 ```
 
-**Pipeline per volume:**
+Main behavior:
 
-| Step | Operation |
-|:-----|:----------|
-| 1 | Load 3D NIfTI (`.nii` / `.nii.gz`) via nibabel |
-| 2 | Per-volume **z-score normalisation**: `(x − mean) / std` (std clipped to ≥ 1e-8) |
-| 3 | Save every axial slice as `{patient_id}_slice_{idx:03d}.npy` (float32) |
-| 4 | Write `preslice_metadata.json` summary |
+- reads source NIfTI paths from the script/config environment
+- z-score normalizes per volume
+- saves every axial slice as `{patient_id}_slice_{idx:03d}.npy`
+- writes `preslice_metadata.json`
 
-Default output: `../xxx/Data/PreSliced/`
+Because `preslice_volumes.py` is script/config driven, check or edit its path settings before running.
 
-#### Test / inference data (anomalous cohorts)
+### External/synthetic/clinical cohorts
 
-Use `External_dataset.py` for external NIfTI cohorts. This script applies **identical preprocessing** (z-score, 90° CCW rotation, resize 320→crop 256) and uses the following naming convention that encodes category metadata directly in the filename:
+`External_dataset.py` contains utilities for processing external NIfTI cohorts and preserving category/case metadata. Its preprocessing utilities include:
 
-```
-{category}_{case_folder}_{volume_name}_slice_{idx:03d}.npy
-# Example: ClinicalVariations_T2_CUBE_FemaleBrachy_Cube1_slice_045.npy
-```
+- NIfTI loading
+- slice normalization
+- resize/crop
+- per-slice saving
+- category and case-folder tracking
 
-The `category` and `case_folder` segments are parsed by `ROC_Curves_Calculations.py` to assign each slice to an anomaly category for stratified ROC analysis. The expected folder structure for the evlauation cohorts is:
-
-```
-<cohort_root>/
-├── ClinicalVariations/
-│   ├── Spacer/          *.nii.gz
-│   ├── Hip_implants/   *.nii.gz
-│   └── ...
-└── SyntheticVariations/
-    ├── Noise/           *.nii.gz
-    ├── Motion/          *.nii.gz
-    └── ...
-```
-
-**Naming convention is critical if you want to use our exact code:** The slice index embedded in the filename (e.g. `_slice_045`) is parsed at training time (Stage 2 slice filtering) and inference time (slice-position RoPE encoding, per-slice calibration lookup). Files that do not match `*_slice_*.npy` are silently ignored by `SliceDataModule`. Please make sure to modify our code if you follow other naming style. 
-
-
-### 2. Dataset splits
-
-`Train_Val_Test_Exact_DataSplits_LUND_PROBE.json` documents the exact patient-level train / validation / test split used in our paper:
-
-| Split | Patients |
-|:------|:---------|
-| **Train** | `384` |
-| **Validation** | 10% random from train (seed `42`) |
-| **Test** | Separate cohorts in dedicated inference directories |
-
-
-### 3. Preprocessing pipeline (applied during training data loading)
-
-Each `.npy` slice passes through `dataset.py`:
-
-| Step | Transform | Parameters |
-|:-----|:----------|:-----------|
-| 1 | 90° CCW rotation (`np.rot90`) | `k=-1` (anatomical orientation) |
-| 2 | `EnsureChannelFirstD` | Adds channel dim |
-| 3 | `Resized` | `(320, 320)`, area interpolation |
-| 4 | `CenterSpatialCropd` | `(256, 256)` |
-| 5 | `ToTensorD` | → float32 tensor |
-| 6 (train only) | `RandFlipD` | Horizontal flip, `p=0.5` |
-| 7 (train only) | `RandRotateD` | ±5° (0.0873 rad), `keep_size=True`, `p=0.3` |
-
-> Stage 1 applies the augmentations **inside `training_step`** (after DataLoader), known as "online" augmentation.
+The downstream ROC code uses patient/case/category identifiers to stratify results into synthetic and clinical groups.
 
 ---
 
 ## Training
 
-### Stage 1 — RVQ-VAE
+The training entry point is:
+
+```text
+Train_framework.py
+```
+
+### Stage 1 training
 
 ```bash
-python Train_frameworks.py --stage1 \
+python Train_framework.py --stage1 \
     --data-dir /path/to/PreSliced \
     --batch-size 128 \
     --num-workers 8 \
     --max-epochs 100 \
     --lr 1e-4 \
     --precision 32 \
-    --log-dir logs \
     --wandb-project RVQ-MaskGIT \
     --wandb-run-name Stage1-RVQ-VAE
 ```
 
-**Exact hyperparameters used in the paper (passed directly in `train.py`):**
+Current script-level settings:
 
-| Parameter | Value | Description |
-|:----------|:------|:------------|
-| `embed_dim` | `256` | Token embedding dimension |
-| `patch_size` | `8` | Patch size → `32×32` token grid |
-| `encoder_depth` | `8` | Transformer encoder layers |
-| `encoder_heads` | `8` | Attention heads |
-| `codebook_size` | `192` | Codes per RVQ level |
-| `num_quantizers` | `2` | Number of RVQ residual levels |
-| `commitment_cost` | `0.25` | VQ commitment loss weight |
-| `perceptual_weight` | `0.9` | BiomedCLIP perceptual loss weight |
-| `lr` | `1e-4` | Initial learning rate |
-| `max_epochs` | `100` | Training epochs |
-| `batch_size` | `128` | Batch size |
-| `gradient_clip_val` | `1.0` | Gradient norm clipping |
-| `use_augmentations` | `True` | MONAI intra-step augmentation |
+| Setting | Value |
+|---|---:|
+| `embed_dim` | 256 |
+| `codebook_size` | 192 |
+| `commitment_cost` | 0.25 |
+| learning rate default | `1e-4` |
+| batch size default | 128 |
+| max epochs default | 100 |
+| checkpoint monitor | `val/loss` |
+| checkpoint top-k | 3 |
+| trainer device default | `[1]` |
 
-> **GPU:** Training uses `devices=[1]` (single GPU, index 1). Edit `make_trainer` if your setup differs.
-
-
-### Stage 2 — Fact-biT 
-
-Stage 2 requires a trained Stage 1 checkpoint. Stage 1 weights are **completely frozen** (gradients disabled).
+### Stage 2 training
 
 ```bash
-python Train_frameworks.py --stage2 \
+python Train_framework.py --stage2 \
     --data-dir /path/to/PreSliced \
     --stage1-ckpt /path/to/stage1.ckpt \
     --batch-size 128 \
@@ -398,326 +298,308 @@ python Train_frameworks.py --stage2 \
     --wandb-run-name Stage2-Factorized-MaskGIT
 ```
 
-#### Exact hyperparameters used in our paper:
+Stage 2 requires a valid Stage 1 checkpoint. Stage 1 is frozen during Stage 2 training.
 
-| Parameter | Value | Description |
-|:----------|:------|:------------|
-| `embed_dim` | `256` | Transformer embedding dimension |
-| `depth` | `8` | Transformer blocks |
-| `num_heads` | `8` | Attention heads |
-| `mask_ratio` | `0.20` | Fixed mask ratio at validation |
-| `mask_ratio_min` | `0.15` | β-distribution clip lower bound |
-| `mask_ratio_max` | `0.75` | β-distribution clip upper bound |
-| `beta_alpha` | `4.0` | β distribution α parameter |
-| `beta_beta` | `4.0` | β distribution β parameter |
-| `l2_loss_weight` | `0.25` | Weight of L2 token CE loss |
-| `q_error_weight` | `0.1` | Weight of quantisation error in anomaly score |
-| `label_smoothing` | `0.05` | Cross-entropy label smoothing |
-| `warmup_steps` | `2000` | Linear LR warmup steps |
-| `weight_decay` | `0.01` | AdamW weight decay (non-embed/bias/norm); `0.0` otherwise |
-| `lr` | `1e-4` | Peak learning rate |
-| `train_slice_min` | `30` | Minimum slice index for training |
-| `train_slice_max` | `60` | Maximum slice index for training |
-| `max_epochs` | `100` | Training epochs |
-| `batch_size` | `128` | Batch size |
-| `gradient_clip_val` | `1.0` | Gradient norm clipping |
+Stage 2 also filters training slices to the anatomically relevant slice-index range, documented in the config as approximately:
 
-**GPU:** Training uses `devices=[1]` (single GPU, index 1). Edit `make_trainer` in `train.py` if your setup differs.
-
-### Logging and Checkpointing
-
-| Logger | Output | Notes |
-|:-------|:-------|:------|
-| **CSVLogger** | `logs/<stage>/` | Always active |
-| **WandbLogger** | wandb run | Disable with `--wandb-off`; set project with `--wandb-project` |
-
-**Checkpoint pattern:**
+```text
+train_slice_min = 30
+train_slice_max = 60
 ```
-lightningCheckpoints_Modified/Modified_Checkerboard_<stage>-epoch=<E>-val/loss=<L>.ckpt
+
+This depends on correctly encoded `_slice_###` filenames.
+
+### Logging and checkpointing
+
+`Train_framework.py` uses:
+
+- `CSVLogger`
+- optional `WandbLogger`
+- `LearningRateMonitor`
+- `ModelCheckpoint`
+
+Disable W&B with:
+
+```bash
+--wandb-off
 ```
-Top-3 checkpoints by `val/loss` (min) are retained.
+
+Privacy note: do not log patient-identifiable information to W&B, filenames, plots, or shared logs.
 
 ---
 
+## Inference and calibration
 
+The main inference script is:
 
-## Inference Pipeline
+```text
+Inference_Pelvis_Experiments.py
+```
 
-### Recursive-AutoMask V4 with Z-Score Normalization
+### Model loading
 
-#### Calibration Mode (Required Before Inference)
+`load_models(stage1_ckpt, stage2_ckpt, device)` loads Stage 1 and Stage 2 checkpoints. Stage 1 perceptual-loss keys are stripped during inference loading so that BiomedCLIP weights are not required for checkpoint loading at inference time.
 
-Run on held-out **Normal/Reference data** to learn per-pixel μ and σ of LPIPS reconstruction error within your reference population:
+### Step 1 — healthy/reference calibration
+
+Calibration estimates per-pixel healthy/reference LPIPS statistics:
+
+```text
+mu[h, w]    = mean LPIPS(input, healed) value over calibration slices
+sigma[h, w] = std  LPIPS(input, healed) value over calibration slices
+```
+
+Example:
 
 ```bash
 python Inference_Pelvis_Experiments.py \
-    --stage1-ckpt /path/to/stage1.ckpt \
-    --stage2-ckpt /path/to/stage2.ckpt \
-    --data-dir /path/to/normal/reference_slices \
     --calibration-mode \
-    --calibration-output /path/to/calibration.npz \
-    --heal-steps 12 \
-    --heal-temperature 0.8 \
+    --stage1-ckpt /path/to/stage1.ckpt \
+    --stage2-ckpt /path/to/stage2.ckpt \
+    --data-dir /path/to/normal_reference_slices \
+    --calibration-map /path/to/zscore_calibration.npz \
     --smoothing-kernel 15 \
-    --use-tta \
-    --use-per-slice-stats
+    --heatmap-aggregation geomean \
+    --heal-patterns "2,3" \
+    --device cuda:0
 ```
 
-**Calibration `.npz` contents:**
+The calibration file may contain:
 
-| Key | Shape | Description |
-|:-----|:------|:------------|
-| `mu` | `(H, W)` | Per-pixel mean LPIPS across normal/reference slices (after spatial smoothing) |
-| `sigma` | `(H, W)` | Per-pixel standard deviation |
-| `n_samples` | scalar | Number of normal/reference slices used |
-| `smoothing_kernel` | scalar | Kernel size (must match inference) |
-| `mu_slice_<idx>` | `(H, W)` | Per-slice-index mean (when `use_per_slice_stats=True`, ≥3 samples) |
-| `sigma_slice_<idx>` | `(H, W)` | Per-slice-index std |
+| Key | Meaning |
+|---|---|
+| `mu` | global per-pixel mean LPIPS map |
+| `sigma` | global per-pixel std LPIPS map |
+| `n_samples` | number of calibration slices |
+| `smoothing_kernel` | smoothing kernel used before statistics |
+| per-slice entries | optional slice-index-specific statistics when enough samples exist |
 
-A visualisation (`calibration_visualization.png`) showing μ, σ, μ/σ ratio and false-positive (FP)-prone regions is saved automatically.
+> **Critical reproducibility rule:** use the same `--smoothing-kernel` during calibration and inference.
 
-> **Key Design:** Spatial smoothing (`avg-pool, kernel=15`) is applied identically to calibration and inference heatmaps. This makes statistics represent coarse anatomical regions rather than exact pixel locations; critical as patient-to-patient registration and anatomical differences are expected.
+Calibration generation itself is marked AYNU in the refactor blueprint because the AUROC path loads an existing calibration map; nevertheless, calibration is required to create that map for a new dataset/reference population.
 
-#### Inference Mode
+### Step 2 — anomaly inference
+
+Example using current inspected script defaults as a starting point:
 
 ```bash
 python Inference_Pelvis_Experiments.py \
     --stage1-ckpt /path/to/stage1.ckpt \
     --stage2-ckpt /path/to/stage2.ckpt \
-    --data-dir /path/to/test_slices \
-    --calibration-map /path/to/calibration.npz \
-    --output-dir /path/to/results \
+    --data-dir /path/to/test_or_anomaly_slices \
+    --output-dir /path/to/inference_results \
+    --calibration-map /path/to/zscore_calibration.npz \
     --z-threshold 2.0 \
-    --num-iterations 3 \
-    --heal-steps 12 \
-    --heal-temperature 0.8 \
-    --inpaint-steps 12 \
-    --inpaint-temperature 0.9 \
-    --use-tta \
-    --token-surprisal-samples 50
+    --smoothing-kernel 15 \
+    --heatmap-aggregation geomean \
+    --heal-patterns "2,3" \
+    --token-surprisal-samples 50 \
+    --token-surprisal-mask-ratio 0.90 \
+    --token-surprisal-clamp 8.0 \
+    --binary-threshold 0.60 \
+    --device cuda:0
 ```
 
-### Inference Pipeline — Step-by-Step
+### Current important inference defaults
 
-The core function is `recursive_automask_v4_zscore`. Below is a full description of each step:
+The inspected script currently defines defaults including:
 
-**Step 1 — (Optional) Sharpness computation**
+| Argument | Current default |
+|---|---:|
+| `--z-threshold` | `2.0` |
+| `--smoothing-kernel` | `15` |
+| `--heatmap-aggregation` | `geomean` |
+| `--batch-size` | `320` |
+| `--heal-steps` | `6` |
+| `--heal-temperature` | `0.3` |
+| `--heal-patterns` | `"2,3"` |
+| `--binary-threshold` | `0.60` |
+| `--token-surprisal-samples` | `50` |
+| `--token-surprisal-mask-ratio` | `0.90` |
+| `--token-surprisal-clamp` | `8.0` |
+| `--use-tta` | enabled by default |
+| `--num-iterations` | `1` |
+| `--inpaint-steps` | `12` |
+| `--inpaint-temperature` | `0.3` |
+| `--device` | `cuda:1` |
 
-Laplacian variance (`compute_sharpness_score`) and spatial Laplacian energy map (`compute_sharpness_map`) are computed for the input image. Slices with sharpness < `blur_threshold=0.002` are flagged as motion-blurred artifacts; the final mask for those slices is overridden to all-ones (maximum anomaly flag) as a safety measure.
+These defaults are experiment-specific. Save the exact CLI command with each run.
 
-**Step 2 — Token surprisal (pseudo-PLL)**
+### Main inference steps
 
-`compute_token_surprisal_map` approximates the pseudo-perplexity of L1 tokens via 50 independent random-masking passes (mask_ratio=0.15):
-- For each pass: randomly mask 15% of L1 tokens, run Stage 2 transformer, compute NLL of the true token.
-- Only masked positions accumulate NLL; unmasked positions remain zero.
-- Scores are averaged across passes.
-- Values > `token_surprisal_clamp=5.0` are retained; values below are zeroed (clamp filter for noise suppression).
-- The map is upsampled to pixel resolution (bilinear) and counted as hot pixels (`token_surprisal_hot_px`).
+Inside `recursive_automask_v4_zscore(...)`, the CORE flow is:
 
-This signal is independent of the healing branch — it measures how unexpected each token is in isolation.
+1. load input slice and extract slice position from filename when available
+2. compute Stage 1 tokens/reconstruction
+3. compute token surprisal through repeated L1 token masking
+4. heal checkerboard-masked tokens using Stage 2
+5. compute LPIPS between input and healed image(s)
+6. aggregate native and TTA heatmaps, commonly with `geomean`
+7. smooth and threshold by Z-score using the calibration map
+8. compute `Binary_Sum_Heatmap` from the masked heatmap and binary threshold
+9. write per-slice JSON fields
+10. aggregate patient scores in `ROC_Curves_Calculations.py`
 
-**Step 3 — Ensemble healing**
+Targeted inpainting and multi-iteration refinement are implemented and preserved, but the current AUROC default is `--num-iterations 1`, so later refinement iterations are not part of the default CORE score.
 
-`ensemble_heal` applies two deterministic checkerboard masks (patterns 0 and 1 in `_build_checker_mask`) and heals each independently:
+### Output
 
-- Patterns 0/1: alternating black/white at single-pixel granularity (pixel checkerboard)
-- Patterns 2/3: 2×2 blocks (if used)
-- Patterns 4/5: 4×4 blocks (if used)
+The main JSON output is:
 
-For each mask pattern, `_heal_with_mask` iteratively unmasks tokens in 12 MaskGIT steps at temperature=0.8. In each step, the most confident masked positions are unmasked first (confidence-ordered). L1 and L2 codebook levels are healed sequentially (L1 first, then L2 conditioned on healed L1).
-
-TTA (test-time augmentation): the input is also horizontally flipped, healed identically, and the healed image is flipped back. This provides a second healing trajectory that captures different spatial contexts.
-
-**Step 4 — LPIPS heatmap (Iteration 0)**
-
-VGG-LPIPS (spatial mode) measures pixel-wise perceptual distance between input and healed images.
-Multiple healed versions from both the native and TTA branches are aggregated:
-- `mean`: average LPIPS across all healed versions
-- `max`: maximum LPIPS
-- `logsumexp`: soft-max aggregation with temperature
-- `geomean`: geometric mean of the two ensemble branch heatmaps
-
-**Step 5 — Z-score thresholding (Iteration 0 only)**
-
-If a calibration map is provided:
-```
-Z[h, w] = (LPIPS_smooth[h, w] − μ[h, w]) / (σ[h, w] + ε)
-```
-where spatial smoothing (avg-pool, kernel=15) is applied first. Per-slice-index statistics are used when the slice index is present in the calibration and matches a stored entry; otherwise the global μ/σ is used.
-
-Binary mask: `Z > z_threshold` (default 2.0). Connected-component filtering removes regions < `min_region_size=5` pixels. Morphological dilation with kernel=3 expands the mask.
-
-**Step 6 — Targeted inpainting (all iterations)**
-
-`targeted_inpaint` converts the binary mask to a token-space mask (one of: max-pool, avg-pool above 0.5, top-k ratio) and regenerates only the flagged tokens via 12 MaskGIT steps. Non-flagged tokens are **locked** (their indices are preserved exactly). After inpainting, L1 and L2 changes are recorded (`l1_change`, `l2_change` fraction of tokens changed).
-
-**Step 7 — Refinement (Iterations 1–2)**
-
-LPIPS(input, inpainted) replaces the healed heatmap. Percentile thresholding (95th percentile over the image) is used instead of Z-scoring. An inter-iteration dilation (kernel=5) expands the mask slightly before the next inpainting pass.
-
-**Step 8 — Scalar scores per slice**
-
-Each slice in the output JSON have:
-
-| Field | Description |
-|-------|-------------|
-| `Binary_Sum_Heatmap` | Number of pixels in the final masked heatmap > 0.10 |
-| `clamped_pixel_sum` | Sum of heatmap values above a clamp threshold, weighted by the anomaly mask |
-| `token_surprisal_hot_px` | Number of hot pixels in the token surprisal map (NLL > clamp) |
-| `sharpness_score` | Laplacian variance of the input slice |
-| `anomaly_pixel_count` | Number of pixels flagged in the binary anomaly mask |
-| `lpips_input_recon_sum_mask` | LPIPS(input, Stage1 reconstruction) summed over the mask |
-| `mean_heal_change_l1/l2` | Fraction of L1/L2 tokens changed during healing |
-| `mask_coverage` | Fraction of pixels in the final anomaly mask |
-
-**Patient-level score (for ROC evaluation):**
-```
-patient-level score = sum of "token_surprisal_hot_px + Binary_Sum_Heatmap" over selected slices.
-ROC-analysis utilizes this score. 
+```text
+results_v4_zscore.json
 ```
 
-### Model loading for inference
+Important fields include:
 
-Stage 1 is loaded by filtering out the perceptual loss weights (not needed at inference):
-```python
-filtered_state = {k: v for k, v in state_dict.items()
-                  if not k.startswith("perceptual_loss.")}
-stage1 = Stage1RVQVAE(**hparams)
-stage1.load_state_dict(filtered_state, strict=False)
-
-```
-Stage 2 is loaded with `FactorizedMaskGIT.load_from_checkpoint(..., stage1=stage1, strict=False)`.
-Both models are set to `eval()` with all parameters frozen.
+| Field | Meaning |
+|---|---|
+| `token_surprisal_hot_px` | CORE count of hot token-surprisal pixels after clamping |
+| `Binary_Sum_Heatmap` | CORE count of binary-positive masked LPIPS pixels |
+| `path`, `filename` | source slice path/name |
+| `category` | cohort/anomaly category metadata |
+| `case_folder` | patient/case grouping metadata |
+| `used_zscore` | whether calibration Z-score thresholding was active |
+| `z_threshold` | Z-score threshold used if active |
+| `clamped_pixel_sum` | AYNU auxiliary LPIPS-derived score |
+| `lpips_input_recon_sum_mask` | AYNU reconstruction diagnostic |
+| `sharpness_score`, `artifact_flag` | AYNU artifact/sharpness diagnostics |
+| `iteration_metrics` | AYNU iteration/refinement diagnostics |
 
 ---
 
-## ROC-analysis 
+## ROC / AUPRC evaluation
 
-`ROC_Curves_Calculations.py` reads per-slice JSON result files and computes patient-level ROC/AUC curves stratified by anomaly category.
+The ROC script is:
 
-### Default result JSON paths
-
-The script reads from different directories by default (edit `DEFAULT_ROC_INPUT_PATHS` to match your setup):
-
-```python
-DEFAULT_ROC_INPUT_PATHS = [
-    ".../Inference_Results_LUND_PROBE_Volunteer_Clinical/results_v4_zscore.json",
-    ".../Inference_Results_LUND_PROBE_CervixBrachy/results_v4_zscore.json",
-    ".../Inference_Results_LUND_PROBE_Clinical/results_v4_zscore.json",
-    ".... etc. "
-]
+```text
+ROC_Curves_Calculations.py
 ```
 
-### Patient-Level Aggregation Strategies
-
-| Function | Metric Used | Description |
-|:---------|:------------|:------------|
-| `aggregate_patient_clamp_from_results` | `clamped_pixel_sum` | Sums clamped LPIPS pixel intensities across all slices |
-| `collect_patient_binary_sums` | `Binary_Sum_Heatmap` | Counts binary anomaly pixels per patient |
-| `collect_patient_sharpness_totals` | `sharpness_score` | Aggregated Laplacian sharpness (negative control) |
-| `aggregate_patient_status` | `combined_score > threshold` | Votes by number of flagged slices exceeding threshold |
-
-
-### 📊 Running ROC-analysis 
+### Main merged-ROC workflow
 
 ```bash
 python ROC_Curves_Calculations.py \
-    --input /path/to/results_v4_zscore.json \
-    --output-dir /path/to/roc_figures \
-    --categories all
+    --run-merged-roc \
+    --roc-input /path/to/results_v4_zscore_a.json /path/to/results_v4_zscore_b.json \
+    --output-dir /path/to/roc_outputs
 ```
 
-#### Step 2: Compute ROC, AUC, and CI-bands
+If `--roc-input` is not supplied, the script may fall back to `DEFAULT_ROC_INPUT_PATHS`, which are local experiment paths and should usually be overridden.
 
-```python
-compute_fastmri_roc_and_auc(
-    patient_scores=merged_patient_scores,
-    expected_test_normals=30,           # Sanity check: expected # of test normals
-    bootstrap_samples=2000,             # For confidence intervals
-    confidence_level=0.95,
-    bootstrap_random_seed=42,
-    ci_fpr_grid_size=201,               # Grid resolution for CI band
-)
+The CORE functions are:
+
+```text
+aggregate_patient_sum_of_all_bars(...)
+merge_json_payloads_for_roc(...)
+compute_patient_roc_and_auc(...)
 ```
 
-Outputs:
-- `sensitivity` = TP / (TP + FN)
-- `specificity` = TN / (TN + FP)
-- `FPR` = 1-specificity 
-- `auc_mean`, `auc_std`, `auc_ci_lower`, `auc_ci_upper`
-- `tpr_ci_lower`, `tpr_ci_upper`, `tpr_median` at each false-positive ratio (FPR) point
+The patient-level score is:
+
+```text
+sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
+```
+
+Labels are assigned from patient/case identifiers: “orig” cases are treated as normal/reference (`label=0`) and all other cases as anomaly (`label=1`). Confirm this naming convention before using the ROC script on new cohorts.
+
+### Outputs
+
+The ROC script can produce:
+
+- merged JSON payloads
+- ROC curve figures
+- precision-recall curve figures
+- AUROC/AUPRC metrics JSON
+- bootstrap confidence intervals
+- threshold tables
+- synthetic-vs-clinical split curves
+- category-stratified sensitivity tables
+
+The script also contains many AYNU plotting functions for intermediate patient-level summaries.
 
 ---
 
-### Threshold Selection Strategies (Optional)
+## Reference configuration file
 
-#### 1. Best Threshold by Youden's J Index
+`config_yaml.yaml` documents the intended experiment settings in a structured format. It is useful as a reference, but the inspected main Python scripts do **not** automatically load it as the sole runtime source of truth.
 
-```python
-best_threshold = max(roc_points, key=lambda p: p["youden_j"])
-# youden_j = sensitivity - fpr
-```
+Active behavior is controlled by:
 
-#### 2. Fixed FPR Threshold
+- CLI arguments
+- hard-coded defaults inside Python scripts
+- checkpoint hyperparameters
+- filename conventions
+- actual input JSON/data paths selected at runtime
 
-```python
-select_threshold_for_target_fpr(roc_metrics, target_fpr=0.20)
-# Returns threshold with highest sensitivity where FPR <= target_fpr
-```
+For reproducibility, keep:
 
-#### 3. Fixed Threshold Evaluation
-
-```python
-evaluate_threshold_on_patient_scores(patient_scores, threshold=1019.0)
-# Evaluates the specific threshold used during inference
-```
-
+1. exact training commands
+2. exact inference commands
+3. checkpoint paths/checkpoint hashes if available
+4. calibration `.npz` file
+5. `results_v4_zscore.json`
+6. merged ROC JSON/metrics outputs
+7. the code version
+8. the split manifest JSON
 
 ---
 
+## Synthetic anomaly utilities
 
-## Acknowledgements
+The repository includes helper scripts for synthetic anomaly generation:
 
-- [vector-quantize-pytorch](https://github.com/lucidrains/vector-quantize-pytorch) — ResidualVQ implementation
-- [MONAI](https://monai.io/) — Medical imaging transforms and data utilities
-- [BiomedCLIP](https://huggingface.co/microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224) — Domain-adapted perceptual loss during Stage 1 training
-- [lpips](https://github.com/richzhang/PerceptualSimilarity) — Spatial LPIPS used in the inference heatmap
-- [PyTorch Lightning](https://lightning.ai/) — Training framework
+- `Simulation_inference_v4_extended_CJG.py`
+- `Simluation_inference_v3_support_CJG.py`
 
-## Reading the code
+These are not on the primary AUROC computation path, but they document and support generation of synthetic variations such as blur/noise/inserted structures used in the broader experimental workflow.
 
-The four core scripts in `experiments/pelvic_mri/` are organised so that
-the AUROC reproduction pipeline is at the top of each file, with a clearly
-demarcated **"Available yet not used"** section at the bottom containing
-auxiliary code (training, alternative anomaly scorers, visualisation
-helpers, calibration generation, supplementary diagnostic plots).
+Be careful not to write identifiable DICOM metadata or patient information to public outputs when using these utilities.
 
-The two-step reproduction path is:
+---
 
-1. **Inference** — `Inference_Pelvis_Experiments.py` runs the trained
-   Stage-1 + Stage-2 models on each evaluation cohort and writes one
-   `results_v4_zscore.json` per cohort. Each per-slice row contains two
-   numbers used by the AUROC:
-   - `token_surprisal_hot_px` — count of pixels whose mean negative
-     log-likelihood under repeated random masking of L1 codebook tokens
-     exceeds the surprisal clamp;
-   - `Binary_Sum_Heatmap` — count of pixels in the LPIPS heatmap (input
-     vs TTA-ensembled healed image) whose Z-score against the per-pixel
-     normal/reference μ, σ exceeds `z_threshold`, multiplied by the Z-score mask.
+## Exact replication checklist
 
-2. **AUROC** — `ROC_Curves_Calculations.py --run-merged-roc` merges the
-   cohort JSONs, sums the two scores per patient
-   (`sum_all_bars_score`), and computes patient-level AUROC and AUPRC
-   with stratified bootstrap 95% confidence intervals. It also produces
-   the Synthetic-vs-Clinical split curves and the per-category
-   sensitivity table at a fixed FPR.
+Use this checklist when trying to reproduce the Pelvis experiment.
 
-Everything below the **"Available yet not used"** banner in each file is
-optional. It includes additional analyses we explored — alternative
-token-context scoring, multi-scale quantisation-error scoring, sharpness-
-based artifact gating, per-patient bar charts of intermediate scores, and
-several visualisation helpers — but **none of them affect the AUROC
-reported in the manuscript**. They are kept in the repository for full
-methodological transparency and for readers interested in alternative
-analyses or details beyond the scope of the paper.
+- [ ] Normal/reference NIfTI volumes were pre-sliced to `.npy` with the expected `_slice_###` naming convention.
+- [ ] Training/validation/test splits are recorded and reused.
+- [ ] Stage 1 checkpoint path is recorded.
+- [ ] Stage 2 checkpoint path is recorded.
+- [ ] Calibration data are normal/reference and independent from anomaly evaluation cohorts.
+- [ ] `--smoothing-kernel` is identical between calibration and inference.
+- [ ] Slice indices are preserved in filenames for 3D RoPE and per-slice calibration lookup.
+- [ ] The exact inference CLI command is saved.
+- [ ] `results_v4_zscore.json` is retained for each cohort.
+- [ ] ROC is computed from `sum_all_bars_score = token_surprisal_hot_px + Binary_Sum_Heatmap` summed over patient slices.
+- [ ] “orig”/normal identifiers are correct before assigning ROC labels.
+- [ ] Ground-truth/category labels are not used for model training.
+- [ ] No patient-identifying information is exposed in public logs, filenames, figures, or W&B runs.
 
+---
+
+## Key differences from the Brain MRI version
+
+| Aspect | Pelvic MRI code in this folder | Brain MRI code |
+|---|---|---|
+| Anatomy/domain | Pelvic MRI | Brain MRI |
+| Main data source | LUND-PROBE-style pelvic MRI workflow | IXI + fastMRI-style brain workflow |
+| Stage 2 positional encoding | **3D RoPE** over row, column, slice | 2D RoPE over row/column |
+| Codebook size used by training script | 192 per RVQ level | 256 per RVQ level |
+| Main ROC score | patient sum of `token_surprisal_hot_px + Binary_Sum_Heatmap` | patient sum of `Binary_Sum_Heatmap` |
+| Main LPIPS reference | input-vs-healed/inpainted | reconstruction-vs-healed/inpainted |
+| File format | `.npy` slices | primarily `.npz` with key `arr` |
+| Slice index importance | used for 3D RoPE and per-slice calibration | not used for 2D RoPE |
+
+---
+
+## Practical notes for GitHub readers
+
+- This is research code, not a clinically validated tool.
+- Do not use model outputs for clinical decisions.
+- The code is slice-based; patient-level scores are produced by aggregating slice scores.
+- Avoid slice-level leakage. Splits should be patient-level whenever possible.
+- Preserve filename slice indices (`_slice_###`) because they affect Stage 2 slice conditioning and calibration lookup.
+- Be careful with orientation, rotation, resizing, and category/case naming conventions when preparing new data.
+- Many defaults are local to the original workstation; override paths explicitly.
+- The CORE/AYNU comments in the Python files are meant to help readers identify exactly what contributes to the reported AUROC/AUPRC.
