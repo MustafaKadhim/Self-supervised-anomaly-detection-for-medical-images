@@ -29,7 +29,7 @@ Ground-truth anomaly labels and bounding boxes are **not used for model training
 ```text
 Final_Clean_to_Github_Brain/
 ├── Model_Stage1.py                         # Stage 1 RVQ-VAE model
-├── Model_Stage_2.py                         # Stage 2 Factorized MaskGIT model
+├── Model_Stage_2.py                         # Stage 2 Fact-biT model
 ├── Train_framework.py                       # PyTorch Lightning training entry point
 ├── dataset.py                               # Slice Dataset/DataModule for .npz/.png slices
 ├── Inference_Brain_Experiments.py           # Recursive-AutoMask V4 inference + calibration
@@ -91,16 +91,16 @@ The framework has two learned stages.
 
 | Stage | Model | Purpose |
 |---|---|---|
-| **Stage 1** | RVQ-VAE with ViT encoder, multi-scale encoder, residual vector quantization, PixelShuffle decoder | Learns a discrete latent representation of normal/reference brain appearance |
-| **Stage 2** | Factorized MaskGIT transformer | Learns distributions over Stage 1 codebook tokens and heals masked/suspect tokens |
+| **Stage 1**   | RVQ-VAE with ViT encoder, multi-scale encoder, residual vector quantization, PixelShuffle decoder | Learns a discrete latent representation of normal/reference anatomy |
+| **Stage 2**   | Fact-biT transformer | Learns distributions over Stage 1 tokens and heals masked tokens |
 
 At inference, **Recursive-AutoMask V4** performs calibration, healing, perceptual comparison, binary-mask fusion, and optional targeted inpainting. The main heatmap branch is reconstruction-referenced:
 
 - calibration uses **LPIPS(Stage 1 reconstruction, healed reconstruction)**
-- inference iteration 0 uses **LPIPS(Stage 1 reconstruction, healed reconstruction)**
+- inference iteration uses **LPIPS(Stage 1 reconstruction, healed reconstruction)**
 - refinement iterations use **LPIPS(Stage 1 reconstruction, inpainted reconstruction)**
 
-The script also computes `lpips_input_recon`, but this is mainly for auxiliary visualization/analysis rather than the primary AUROC path.
+The script also computes `lpips_input_recon`, but this is mainly for auxiliary visualization/analysis rather than the primary path.
 
 ---
 
