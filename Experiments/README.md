@@ -22,7 +22,7 @@ This document summarizes the **CORE-relevant** differences between the cleaned B
 <table>
 <tr>
 <th width="15%">🟢 CORE</th>
-<td>Code and settings that <b>directly affect</b> the primary patient-level ROC/AUROC path.</td>
+<td>Code and settings that <b>directly affect</b> the primary patient-level ROC/AUROC calculations.</td>
 </tr>
 <tr>
 <th width="15%">🟡 AYNU</th>
