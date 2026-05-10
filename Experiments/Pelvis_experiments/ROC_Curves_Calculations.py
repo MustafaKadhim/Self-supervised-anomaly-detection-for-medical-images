@@ -158,7 +158,16 @@ def aggregate_patient_sum_of_all_bars(
     source_json: Path,
     allowed_case_folders: Optional[Set[str]] = None,
 ) -> List[dict]:
-    """Aggregate per-patient sum(token_surprisal_hot_px + Binary_Sum_Heatmap)."""
+    """Aggregate the deduplicated patient-level final ALM score.
+
+    `sum_all_bars_score` follows the updated Brain-matched ROC framework:
+
+        Σ_slices(Final_Binary_sum_of_anomaly_maps)
+
+    `token_surprisal_hot_px` is retained only as an audit/debug field and is not
+    added separately to the primary ROC/PR score. Use the ablation helper to
+    quantify separate token-surprisal and LPIPS-backflow effects.
+    """
     patient_map: Dict[str, Dict[str, object]] = {}
 
     for item in results:
@@ -166,10 +175,12 @@ def aggregate_patient_sum_of_all_bars(
         if not matches_case_folder(case_folder, allowed_case_folders):
             continue
 
-        token_val = item.get("token_surprisal_hot_px")
-        binary_val = item.get("Binary_Sum_Heatmap")
-        if token_val is None and binary_val is None:
+        binary_val = item.get("Final_Binary_sum_of_anomaly_maps")
+        if binary_val is None:
+            binary_val = item.get("Binary_Sum_Heatmap")
+        if binary_val is None:
             continue
+        token_val = item.get("token_surprisal_hot_px")
 
         pid_raw = patient_id_from_item(item)
         if pid_raw is None:
@@ -184,7 +195,7 @@ def aggregate_patient_sum_of_all_bars(
                 "case_folders": set(),
                 "sum_all_bars_score": 0.0,
                 "sum_token_surprisal_hot_px": 0.0,
-                "sum_binary_sum_heatmap": 0.0,
+                "sum_final_binary_sum_of_anomaly_maps": 0.0,
                 "num_slices": 0,
             }
 
@@ -194,10 +205,10 @@ def aggregate_patient_sum_of_all_bars(
             entry["case_folders"].add(str(case_folder))
 
         token_float = float(token_val) if token_val is not None else 0.0
-        binary_float = float(binary_val) if binary_val is not None else 0.0
+        binary_float = float(binary_val)
         entry["sum_token_surprisal_hot_px"] += token_float
-        entry["sum_binary_sum_heatmap"] += binary_float
-        entry["sum_all_bars_score"] += token_float + binary_float
+        entry["sum_final_binary_sum_of_anomaly_maps"] += binary_float
+        entry["sum_all_bars_score"] += binary_float
 
     rows: List[dict] = []
     for entry in patient_map.values():
@@ -212,7 +223,7 @@ def aggregate_patient_sum_of_all_bars(
             "label": 0 if is_orig else 1,
             "sum_all_bars_score": float(entry["sum_all_bars_score"]),
             "sum_token_surprisal_hot_px": float(entry["sum_token_surprisal_hot_px"]),
-            "sum_binary_sum_heatmap": float(entry["sum_binary_sum_heatmap"]),
+            "sum_final_binary_sum_of_anomaly_maps": float(entry["sum_final_binary_sum_of_anomaly_maps"]),
             "num_slices": int(entry["num_slices"]),
             "global_patient_key": f"{entry['source_id']}::{entry['patient_id']}",
         })
@@ -1924,7 +1935,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--clamp-sum-threshold", type=float, default=140.0, help="AYNU: Threshold for total clamped pixel sum to mark patient as anomaly (default: 450)")
 
-    parser.add_argument("--binary-heatmap-threshold", type=float, default=700.0, help="AYNU: Threshold for per-patient Binary_Sum_Heatmap plot")
+    parser.add_argument("--binary-heatmap-threshold", type=float, default=700.0, help="AYNU: Threshold for per-patient Final_Binary_sum_of_anomaly_maps plot")
 
     parser.add_argument("--sharpness-threshold", type=float, default=5.0, help="AYNU: Threshold for per-patient total sharpness plot (anomaly if below)")
 
@@ -1936,7 +1947,7 @@ def parse_args() -> argparse.Namespace:
         "--combined-threshold",
         type=float,
         default=150.0,
-        help="AYNU: Threshold for combined token_surprisal_hot_px + Binary_Sum_Heatmap (used for red bars)",
+        help="AYNU: Threshold for combined token_surprisal_hot_px + Final_Binary_sum_of_anomaly_maps (used for red bars)",
     )
 
     parser.add_argument(
@@ -1952,7 +1963,7 @@ def parse_args() -> argparse.Namespace:
         dest="sum_all_bars_threshold",
         type=float,
         default=80.0,
-        help="AYNU: Threshold for per-patient sum of all combined bars (token_surprisal_hot_px + Binary_Sum_Heatmap)",
+        help="AYNU: Threshold for per-patient sum of all combined bars (token_surprisal_hot_px + Final_Binary_sum_of_anomaly_maps)",
     )
 
     parser.add_argument(
@@ -2344,7 +2355,7 @@ def main() -> None:
                 allowed_case_folders=allowed_case_folders,
             )
             logging.info(
-                "Plotted combined token_surprisal_hot_px + Binary_Sum_Heatmap per sample -> %s",
+                "Plotted combined token_surprisal_hot_px + Final_Binary_sum_of_anomaly_maps per sample -> %s",
                 output_path,
             )
 
@@ -2597,7 +2608,7 @@ def collect_patient_binary_sums(
     results: List[dict],
     allowed_case_folders: Optional[Set[str]],
 ) -> Tuple[Dict[str, float], Dict[str, bool]]:
-    """Aggregate Binary_Sum_Heatmap per patient and mark orig patients."""
+    """Aggregate Final_Binary_sum_of_anomaly_maps per patient and mark orig patients."""
     if not results:
         raise ValueError("results list is empty in JSON")
 
@@ -2607,7 +2618,7 @@ def collect_patient_binary_sums(
     for item in results:
         if not matches_case_folder(item.get("case_folder"), allowed_case_folders):
             continue
-        val = item.get("Binary_Sum_Heatmap")
+        val = item.get("Final_Binary_sum_of_anomaly_maps")
         if val is None:
             continue
         pid_raw = patient_id_from_item(item)
@@ -2620,7 +2631,7 @@ def collect_patient_binary_sums(
             patient_is_orig[pid] = cf.lower() == "orig" or "orig" in pid.lower()
 
     if not patient_sums:
-        raise ValueError("No Binary_Sum_Heatmap values found for given filters")
+        raise ValueError("No Final_Binary_sum_of_anomaly_maps values found for given filters")
 
     return patient_sums, patient_is_orig
 
@@ -2718,7 +2729,7 @@ def patients_below_binary_threshold(
     threshold: float,
     allowed_case_folders: Optional[Set[str]],
 ) -> Set[str]:
-    """Return patient ids whose Binary_Sum_Heatmap total is <= threshold."""
+    """Return patient ids whose Final_Binary_sum_of_anomaly_maps total is <= threshold."""
     patient_sums, _ = collect_patient_binary_sums(results, allowed_case_folders)
     return {pid for pid, total in patient_sums.items() if total <= threshold}
 
@@ -3044,14 +3055,14 @@ def plot_token_surprisal_hot_px(
     fig.savefig(output_path, dpi=200)
     plt.close(fig)
 
-def plot_binary_sum_heatmap_per_sample(
+def plot_final_binary_sum_of_anomaly_maps_per_sample(
     results: List[dict],
     output_path: Path,
     top_n: Optional[int] = None,
     threshold: float = 1500.0,
     allowed_case_folders: Optional[Set[str]] = None,
 ) -> None:
-    """Plot Binary_Sum_Heatmap per slice/sample.
+    """Plot Final_Binary_sum_of_anomaly_maps per slice/sample.
 
     Bars are red when value exceeds threshold; blue otherwise.
     """
@@ -3060,7 +3071,7 @@ def plot_binary_sum_heatmap_per_sample(
     for item in results:
         if not matches_case_folder(item.get("case_folder"), allowed_case_folders):
             continue
-        value = item.get("Binary_Sum_Heatmap")
+        value = item.get("Final_Binary_sum_of_anomaly_maps")
         if value is None:
             continue
         filename = item.get("filename") or Path(item.get("path", "")).name
@@ -3069,7 +3080,7 @@ def plot_binary_sum_heatmap_per_sample(
         if top_n is not None and len(values) >= top_n:
             break
     if not values:
-        raise ValueError("No Binary_Sum_Heatmap values found for given filters")
+        raise ValueError("No Final_Binary_sum_of_anomaly_maps values found for given filters")
 
     width = max(10, min(0.25 * len(labels), 60))
     fig, ax = plt.subplots(figsize=(width, 6))
@@ -3078,8 +3089,8 @@ def plot_binary_sum_heatmap_per_sample(
     ax.bar(x_positions, values, color=colors)
     ax.set_xticks(list(x_positions))
     ax.set_xticklabels(labels, rotation=65, ha="right", fontsize=8)
-    ax.set_ylabel("Binary_Sum_Heatmap")
-    ax.set_title(f"Binary_Sum_Heatmap per sample (threshold = {threshold})")
+    ax.set_ylabel("Final_Binary_sum_of_anomaly_maps")
+    ax.set_title(f"Final_Binary_sum_of_anomaly_maps per sample (threshold = {threshold})")
     ax.axhline(threshold, color="red", linestyle="--", linewidth=1.2, label=f"threshold={threshold}")
     ax.legend()
 
@@ -3109,14 +3120,14 @@ def plot_combined_token_binary_per_sample(
     threshold: float = 400.0,
     allowed_case_folders: Optional[Set[str]] = None,
 ) -> None:
-    """Plot per-sample sum of token_surprisal_hot_px and Binary_Sum_Heatmap."""
+    """Plot per-sample sum of token_surprisal_hot_px and Final_Binary_sum_of_anomaly_maps."""
     labels: List[str] = []
     values: List[float] = []
     for item in results:
         if not matches_case_folder(item.get("case_folder"), allowed_case_folders):
             continue
         token_val = item.get("token_surprisal_hot_px")
-        binary_val = item.get("Binary_Sum_Heatmap")
+        binary_val = item.get("Final_Binary_sum_of_anomaly_maps")
         if token_val is None or binary_val is None:
             continue
         filename = item.get("filename") or Path(item.get("path", "")).name
@@ -3125,7 +3136,7 @@ def plot_combined_token_binary_per_sample(
         if top_n is not None and len(values) >= top_n:
             break
     if not values:
-        raise ValueError("No combined token_surprisal_hot_px + Binary_Sum_Heatmap values found")
+        raise ValueError("No combined token_surprisal_hot_px + Final_Binary_sum_of_anomaly_maps values found")
 
     width = max(10, min(0.25 * len(labels), 60))
     fig, ax = plt.subplots(figsize=(width, 6))
@@ -3134,7 +3145,7 @@ def plot_combined_token_binary_per_sample(
     ax.bar(x_positions, values, color=colors)
     ax.set_xticks(list(x_positions))
     ax.set_xticklabels(labels, rotation=65, ha="right", fontsize=8)
-    ax.set_ylabel("Token surprisal hot px + Binary_Sum_Heatmap")
+    ax.set_ylabel("Token surprisal hot px + Final_Binary_sum_of_anomaly_maps")
     ax.set_title(f"Combined token surprisal and binary sum per sample (threshold = {threshold})")
     ax.axhline(threshold, color="red", linestyle="--", linewidth=1.2, label=f"threshold={threshold}")
     ax.legend()
@@ -3168,7 +3179,7 @@ def plot_unique_anomaly_patients_counter(
 ) -> None:
     """Plot distribution of unique patients by number of red bars.
 
-    A red bar is a slice/sample where (token_surprisal_hot_px + Binary_Sum_Heatmap) > threshold.
+    A red bar is a slice/sample where (token_surprisal_hot_px + Final_Binary_sum_of_anomaly_maps) > threshold.
     Patients with red-bar count strictly greater than min_red_bars are considered anomaly patients.
     """
     if min_red_bars < 0:
@@ -3194,7 +3205,7 @@ def plot_unique_anomaly_patients_counter(
         if not matches_case_folder(item.get("case_folder"), allowed_case_folders):
             continue
         token_val = item.get("token_surprisal_hot_px")
-        binary_val = item.get("Binary_Sum_Heatmap")
+        binary_val = item.get("Final_Binary_sum_of_anomaly_maps")
         if token_val is None or binary_val is None:
             continue
 
@@ -3209,7 +3220,7 @@ def plot_unique_anomaly_patients_counter(
             break
 
     if not patient_total_counts:
-        raise ValueError("No combined token_surprisal_hot_px + Binary_Sum_Heatmap values found")
+        raise ValueError("No combined token_surprisal_hot_px + Final_Binary_sum_of_anomaly_maps values found")
 
     # Count how many unique patients have exactly N red bars.
     patients_by_red_count: Dict[int, int] = {}
@@ -3276,7 +3287,7 @@ def plot_unique_patients_sum_of_all_bars(
 ) -> None:
     """Plot per-patient sum of all combined bars.
 
-    Combined bar per sample is: token_surprisal_hot_px + Binary_Sum_Heatmap.
+    Combined bar per sample is: token_surprisal_hot_px + Final_Binary_sum_of_anomaly_maps.
     The figure shows, for each unique patient, the sum of all such bars.
     """
 
@@ -3299,7 +3310,7 @@ def plot_unique_patients_sum_of_all_bars(
         if not matches_case_folder(item.get("case_folder"), allowed_case_folders):
             continue
         token_val = item.get("token_surprisal_hot_px")
-        binary_val = item.get("Binary_Sum_Heatmap")
+        binary_val = item.get("Final_Binary_sum_of_anomaly_maps")
         if token_val is None or binary_val is None:
             continue
 
@@ -3312,7 +3323,7 @@ def plot_unique_patients_sum_of_all_bars(
             patient_is_orig[pid] = cf.lower() == "orig" or "orig" in pid.lower()
 
     if not patient_sums:
-        raise ValueError("No patient sums found for combined token_surprisal_hot_px + Binary_Sum_Heatmap")
+        raise ValueError("No patient sums found for combined token_surprisal_hot_px + Final_Binary_sum_of_anomaly_maps")
 
     sorted_items = sorted(patient_sums.items(), key=lambda kv: kv[1], reverse=True)
     if top_n is not None:
@@ -3796,7 +3807,7 @@ def plot_patient_binary_heatmap_sum(
     threshold: float = 500.0,
     allowed_case_folders: Optional[Set[str]] = None,
 ) -> None:
-    """Plot total Binary_Sum_Heatmap per patient (sum of slice-level binary counts)."""
+    """Plot total Final_Binary_sum_of_anomaly_maps per patient (sum of slice-level binary counts)."""
     patient_sums, patient_is_orig = collect_patient_binary_sums(results, allowed_case_folders)
 
     sorted_items = sorted(patient_sums.items(), key=lambda kv: kv[1], reverse=True)
@@ -3820,7 +3831,7 @@ def plot_patient_binary_heatmap_sum(
             text.set_color("green")
 
     ax.set_ylabel("Total binary heatmap pixels")
-    ax.set_title(f"Patient total Binary_Sum_Heatmap (threshold = {threshold})")
+    ax.set_title(f"Patient total Final_Binary_sum_of_anomaly_maps (threshold = {threshold})")
     ax.axhline(threshold, color="black", linestyle="--", linewidth=1.0, label=f"threshold={threshold}")
     secondary_level = 150000.0
     ax.axhline(secondary_level, color="gray", linestyle="--", linewidth=1.0, label=f"secondary={secondary_level}")
@@ -3951,12 +3962,12 @@ def plot_anomaly_pipeline(
     allowed_case_folders: Optional[Set[str]] = None,
     top_n: Optional[int] = None,
 ) -> Dict[str, object]:
-    """Pipeline plot: Global check 1 (sharpness), Global check 2 (Binary_Sum_Heatmap), Local check (clamped sum).
+    """Pipeline plot: Global check 1 (sharpness), Global check 2 (Final_Binary_sum_of_anomaly_maps), Local check (clamped sum).
 
     Patients flagged in Global check 1 are still evaluated by later stages; only Global check 2 anomalies are skipped from Local check.
     Stage rules:
       - Global check 1 anomaly if sharpness < sharpness_low or sharpness > sharpness_high.
-      - Global check 2 anomaly if Binary_Sum_Heatmap > binary_threshold.
+      - Global check 2 anomaly if Final_Binary_sum_of_anomaly_maps > binary_threshold.
       - Local check anomaly if total_clamped_pixel_sum > clamp_threshold.
     """
     sharp_sums, sharp_orig = collect_patient_sharpness_totals(results, allowed_case_folders)
@@ -4087,7 +4098,7 @@ def plot_anomaly_pipeline(
     ax = axes[1]
     ax.bar(x_pos, stage2_vals, color=stage2_colors)
     ax.axhline(binary_threshold, color="red", linestyle="--", linewidth=1.2, label=f"threshold={binary_threshold}")
-    ax.set_ylabel("Binary_Sum_Heatmap")
+    ax.set_ylabel("Final_Binary_sum_of_anomaly_maps")
     ax.set_title("Global check 2: Binary sum (feeds Local check)")
     ax.legend(loc="upper right")
 
@@ -4134,7 +4145,7 @@ def plot_final_patient_anomaly_overview(
 
     A patient is marked as anomaly if any stage triggers:
       - Stage 1: sharpness outside [sharpness_low, sharpness_high]
-      - Stage 2: Binary_Sum_Heatmap > binary_threshold (evaluated only if Stage 1 passes)
+      - Stage 2: Final_Binary_sum_of_anomaly_maps > binary_threshold (evaluated only if Stage 1 passes)
       - Stage 3: total_clamped_pixel_sum > clamp_threshold (evaluated only if Stages 1 and 2 pass)
     """
     sharp_sums, sharp_orig = collect_patient_sharpness_totals(results, allowed_case_folders)
