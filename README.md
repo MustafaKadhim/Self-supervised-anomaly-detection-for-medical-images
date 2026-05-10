@@ -38,7 +38,7 @@
 </div>
 
 
-*A two-stage framework that learns from normal/reference MRI slices and detects deviations from the learned normal distribution using token surprisal and perceptual healing heatmaps.*
+*A two-stage self-supervised framework for unsupervised anomaly detection in medical MRI that learns from normal/reference images and detects deviations from the learned normal distribution using token surprisal and perceptual analysis.*
 
 [🚀 Quickstart](#-quickstart) · [🏗 Framework](#-framework) · [🧪 Experiments](#-experiments) · [📊 Evaluation](#-evaluation) · [📁 Repository Structure](#-repository-structure) · [🔖 Citation](#-citation)
 
