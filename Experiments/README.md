@@ -665,6 +665,6 @@ The important differences are:
 
 ### That's it, have fun!!
 
-*Research code for medical image analysis using deep learning.*
+*Research code for unsupervised medical image anomaly detection and analysis using deep learning.*
 
 </div>
