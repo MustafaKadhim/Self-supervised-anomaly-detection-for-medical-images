@@ -45,7 +45,21 @@
 </div>
 
 ---
+## ⭐ A Brief Description of Our Work
+Two-stage self-supervised framework for unsupervised anomaly detection in medical MRI.
 
+The framework learns a compact, discrete representation of normal anatomy through two jointly trained but sequentially designed stages. Stage 1 is a Residual Vector Quantized Variational Autoencoder (RVQ-VAE) with a Vision Transformer encoder, a PixelShuffle decoder, and a two-level residual codebook. It is trained on normal reference MRI slices using L1 reconstruction loss regularized by a BiomedCLIP perceptual term, producing a discrete token grid that captures structural and textural anatomy at multiple levels of abstraction.
+
+Stage 2 is a factorized bidirectional masked transformer (Fact-biT / Factorized MaskGIT) that operates on the discrete tokens produced by the frozen Stage 1 encoder. It is trained via masked token prediction — a visual analogue of BERT — learning the joint distribution of normal anatomy tokens across spatial positions. For pelvic MRI, it extends positional encoding to three dimensions (row, column, slice index) via 3D Rotary Position Embeddings (RoPE), allowing the model to condition its predictions on anatomical depth.
+
+At inference, neither stage has ever seen anomalous data. Anomaly detection is driven by three complementary signals, fused under the Recursive-AutoMask V4 protocol. The first signal is token surprisal: the true Stage 1 tokens are repeatedly masked at random, predicted by Stage 2, and scored by their negative log-likelihood — regions where the normal distribution assigns low probability to the observed tokens are flagged. The second signal is an LPIPS healing heatmap: Stage 2 heals checkerboard-masked tokens, decodes a "healed" image, and the spatial perceptual distance (LPIPS) between the input and the healed image is thresholded via a calibrated Z-score map built from normal reference slices. The third, optional signal is LPIPS backflow: after targeted inpainting of suspect regions, the perceptual distance between the input and the inpainted image provides a final refinement mask.
+
+These three binary masks are unioned into a single per-slice anomaly map (Final_Binary_sum_of_anomaly_maps), and a patient-level score is formed by summing this count across slices. ROC/AUROC-analysis are computed from this patient-level score against ground-truth cohort labels; labels that were never exposed to the model during training, calibration, or scoring.
+
+Our framework design intentionally separates what contributes to the AUROC (the binary union mask) from auxiliary diagnostics retained for transparency and ablation by implementing a CORE vs. AYNU distinction. The CORE vs. AYNU code annotation makes the primary evaluation path auditable and reproducible, while preserving intermediate outputs that are useful for understanding model behaviour, tuning thresholds, and generating qualitative visualizations. This facilitate understanding what is important without getting lost in what actually matter in the end for heatmap visualizations and ROC-analysis.
+
+
+---
 ## 🌟 Why This Repository?
 
 <table>
