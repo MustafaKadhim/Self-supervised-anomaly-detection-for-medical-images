@@ -29,10 +29,10 @@ SYNTHETIC_GLOBAL_FOCUS_CATEGORIES: Tuple[str, ...] = (
 )
 
 CLINICAL_FOCUS_CATEGORIES: Tuple[str, ...] = (
-    "Unknown",
-    "Spacer",
-    "Stor_T2_till_sCT",
-    "Stor_T2_to_sCT",
+    "Unknown", #Brachythearpy applicators
+    "Spacer", #HydrogelSpacer
+    "Stor_T2_till_sCT", #Hip_implants
+    "Stor_T2_to_sCT", #Hip_implants
     "ClinicalVariations",
 )
 
