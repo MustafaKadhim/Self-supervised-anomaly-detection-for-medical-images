@@ -2,7 +2,7 @@
 
 # 🦴 Two-Stage Unsupervised Anomaly Detection for Pelvic MRI
 
-### *LUND-PROBE Implementation*
+### *LUND-PROBE-focused Implementation*
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-Lightning-orange.svg)](https://pytorch.org/)
@@ -23,14 +23,14 @@
 
 **🎯 Getting Started**
 - [Overview & Core Concept](#-overview--core-concept)
-- [The AUROC/AUPRC Pipeline](#-the-aurocauprc-pipeline)
+- [The AUROC Pipeline](#-the-auroc-pipeline)
 - [Repository Structure](#-repository-structure)
 - [Environment Setup](#-environment-setup)
 
 **🏗️ Architecture**
 - [Method Overview](#-method-overview)
 - [Stage 1: RVQ-VAE](#-stage-1--rvq-vae)
-- [Stage 2: Fact-biT / Fact-biT](#-stage-2--factorized-maskgit--fact-bit)
+- [Stage 2: Factorized MaskGIT / Fact-biT](#-stage-2--factorized-maskgit--fact-bit)
 
 </td>
 <td width="50%" valign="top">
@@ -42,8 +42,9 @@
 
 **🔬 Inference & Evaluation**
 - [Inference and Calibration](#-inference-and-calibration)
-- [ROC / AUROC and PR / AUPRC Evaluation](#-roc--auroc-and-pr--auprc-evaluation)
+- [ROC / AUROC and PR /  Evaluation](#-roc--auroc-and-pr---evaluation)
 - [Synthetic Anomaly Utilities](#-synthetic-anomaly-utilities)
+- [LPIPS-Backflow Controls and Ablation](#-lpips-backflow-controls-and-ablation)
 
 **📋 Reference**
 - [Reproducibility Checklist](#-exact-replication-checklist)
@@ -65,11 +66,11 @@ The code has been organized around a **CORE vs. AYNU** concept:
 <table>
 <tr>
 <th width="15%">🟢 CORE</th>
-<td>Code that <b>directly contributes</b> to the manuscript AUROC/AUPRC reproduction pipeline.</td>
+<td>Code that <b>directly contributes</b> to the manuscript AUROC-analysis reproduction pipeline.</td>
 </tr>
 <tr>
 <th width="15%">🟡 AYNU</th>
-<td><b>"Available Yet Not AUROC-interesting"</b> — auxiliary code retained for transparency, debugging, training diagnostics, visualizations, calibration generation, alternative scores, and supplementary analyses, but not for the primary AUROC/AUPRC calculations.</td>
+<td><b>"Available Yet Not AUROC-interesting"</b> — auxiliary code retained for transparency, debugging, training diagnostics, visualizations, calibration generation, alternative scores, and supplementary analyses, but not for the primary AUROC calculations.</td>
 </tr>
 </table>
 
@@ -77,7 +78,7 @@ The code has been organized around a **CORE vs. AYNU** concept:
 
 ---
 
-## 🔄 The AUROC/AUPRC Pipeline
+## 🔄 The AUROC Pipeline
 
 The primary patient-level ROC/PR path flows through the following stages:
 
@@ -87,11 +88,11 @@ The primary patient-level ROC/PR path flows through the following stages:
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│          Stage 1: RVQ-VAE  →  reconstruction image / tokens     │
+│          Stage 1: RVQ-VAE  →  reconstruction / tokens           │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│      Stage 2:  Fact-biT  →  healing                             │
+│      Stage 2: Factorized MaskGIT / Fact-biT  →  healing         │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
@@ -99,47 +100,45 @@ The primary patient-level ROC/PR path flows through the following stages:
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│      Binary + token-surprisal fusion                            │
-└────────────────────────────┬────────────────────────────────────┘
-                             ▼
-┌──────────────────────┐         ┌──────────────────────────────┐
-│  Binary_Sum_Heatmap  │         │  token_surprisal_hot_px      │
-│      (per slice)     │         │         (per slice)          │
-└──────────┬───────────┘         └──────────────┬───────────────┘
-           │                                    │
-           └────────────────┬───────────────────┘
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Patient-level:  sum_all_bars_score                             │
-│  = Σ_slices (token_surprisal_hot_px + Binary_Sum_Heatmap)       │
+│      perceptual + token-surprisal + LPIPS-backflow fusion       │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                  ROC / AUROC and PR / AUPRC                     │
+│     Final_Binary_sum_of_anomaly_maps (per slice)                │
+└────────────────────────────┬────────────────────────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│      Patient-level:  sum_all_bars_score                         │
+│     = Σ_slices(Final_Binary_sum_of_anomaly_maps)                │
+└────────────────────────────┬────────────────────────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        ROC / AUROC-analysis                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### 🟢 CORE Output Fields
 
-The two per-slice fields consumed by the main patient-level ROC/AUPRC pipeline are:
+The per-slice field consumed by the main patient-level ROC/ pipeline is:
 
 | Field | Role |
 |---|---|
-| `Binary_Sum_Heatmap` | Binary-positive masked LPIPS/healing heatmap count |
-| `token_surprisal_hot_px` | Token-surprisal hot-pixel count after clamping |
+| `Final_Binary_sum_of_anomaly_maps` | Final binary ALM mask count: **ALM(A) ∪ ALM(B) ∪ LPIPS-backflow** when backflow is enabled. |
 
-`ROC_Curves_Calculations.py` aggregates these fields into a patient-level score:
+`ROC_Curves_Calculations.py` aggregates this field into a patient-level score:
 
 ```text
-sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
+sum_all_bars_score = Σ_slices(Final_Binary_sum_of_anomaly_maps)
 ```
 
-Then `compute_patient_roc_and_auc(...)` computes patient-level ROC/AUROC and PR/AUPRC from `sum_all_bars_score`.
+Then `compute_patient_roc_and_auc(...)` computes patient-level ROC/AUROC from `sum_all_bars_score`.
+
+Important: `Final_Binary_sum_of_anomaly_maps` is the final fused binary mask count when `--binary-include-lpips-backflow` is active. It already includes ALM-B token pixels and LPIPS-backflow by default, so `token_surprisal_hot_px` is retained only for audit/ablation and is **not** added separately to the ROC score. Use `--no-binary-include-lpips-backflow` for a clean no-backflow contribution if needed.
 
 ### 🟡 AYNU Examples
 
 <details>
-<summary><b>Click to expand — useful but not the primary AUROC/AUPRC score</b></summary>
+<summary><b>Click to expand — useful for debugging but not for the primary AUROC-analysis </b></summary>
 
 - `clamped_pixel_sum`
 - `lpips_input_recon_sum_mask`
@@ -162,15 +161,14 @@ Final_Clean_to_Github_Pelvis/
 │
 ├── 🟢 CORE — Models & Pipeline
 │   ├── Model_Stage_1.py                         # Stage 1 RVQ-VAE model
-│   ├── Model_Stage_2.py                         # Stage 2 Fact-biT / Fact-biT model
+│   ├── Model_Stage_2.py                         # Stage 2 Factorized MaskGIT / Fact-biT model
 │   ├── Train_framework.py                       # PyTorch Lightning training entry point
 │   ├── dataset.py                               # .npy slice Dataset/DataModule
 │   ├── Inference_Pelvis_Experiments.py          # Recursive-AutoMask V4 inference + calibration
-│   └── ROC_Curves_Calculations.py               # Patient-level ROC/AUPRC and category analyses
+│   └── ROC_Curves_Calculations.py               # Patient-level ROC/ and category analyses
 │
 ├── ⚙️  Configuration & Documentation
 │   ├── config_yaml.yaml                         # Reference config summary (not auto-loaded)
-│   ├── Instructions.md                          # Internal CORE/AYNU refactor blueprint
 │   ├── Train_Val_Test_Exact_DataSplits_LUND_PROBE.json  # Recorded split information
 │   └── Pelvis_Experiments_requirements.txt      # Pinned Python environment from the experiment
 │
@@ -202,14 +200,14 @@ The framework has **two learned stages**:
 </tr>
 <tr>
 <td align="center"><b>2️⃣<br>Stage 2</b></td>
-<td><b>Fact-biT / Fact-biT transformer</b></td>
+<td><b>Factorized MaskGIT / Fact-biT transformer</b></td>
 <td>Learns token distributions and heals masked/suspect tokens using bidirectional masked prediction</td>
 </tr>
 </table>
 
 ### 🎛️ Recursive-AutoMask V4 (Inference)
 
-At inference, **Recursive-AutoMask V4** computes two complementary anomaly signals:
+At inference, **Recursive-AutoMask V4** computes three complementary anomaly signals:
 
 <table>
 <tr>
@@ -224,6 +222,10 @@ At inference, **Recursive-AutoMask V4** computes two complementary anomaly signa
 <td><b>LPIPS healing heatmap</b></td>
 <td>Stage 2 heals checkerboard-masked tokens; spatial LPIPS compares the input image with healed/inpainted images; calibrated Z-score thresholding converts the heatmap to a binary detection mask.</td>
 </tr>
+<tr>
+<td><b>LPIPS-backflow</b></td>
+<td>After targeted inpainting, spatial LPIPS compares <b>Input vs. Inpainted</b>. The map is thresholded to a binary backflow mask and OR-unioned into the final binary ALM mask when enabled.</td>
+</tr>
 </table>
 
 Unlike the cleaned Brain README, the Pelvis inference code’s main LPIPS branch is **input-referenced**:
@@ -232,9 +234,9 @@ Unlike the cleaned Brain README, the Pelvis inference code’s main LPIPS branch
 |---|---|
 | **Calibration** | LPIPS(input, healed) |
 | **Inference iteration 0** | LPIPS(input, healed) |
-| **Refinement iterations** | LPIPS(input, inpainted) |
+| **Targeted backflow iterations** | LPIPS(input, inpainted) |
 
-> 💡 `lpips_input_recon` is computed for auxiliary diagnostics/visualizations, not for the main AUROC/AUPRC score.
+> 💡 `lpips_input_recon` is computed for auxiliary diagnostics/visualizations, not for the main AUROC score.
 
 ---
 
@@ -252,10 +254,10 @@ Unlike the cleaned Brain README, the Pelvis inference code’s main LPIPS branch
 | **Patch embedding** | `Conv2d` with `kernel_size = stride = patch_size` |
 | **Patch size in training script** | `8` → `32 × 32 = 1024` tokens |
 | **Encoder** | ViT-style Transformer encoder, depth 8, 8 heads |
-| **Multi-scale encoder** | Present in the model and used by auxiliary/multiscale paths |
 | **Quantizer** | `ResidualVQ`, 2 quantizers, codebook size 192 in the training script |
-| **Decoder** | PixelShuffle decoder back to one image channel |
+| **Decoder** | PixelShuffle decoder back to one image channel; **output NOT clamped** (returned directly from the decoder) |
 | **Forward output** | `recon`, `indices`, `commit_loss`, `quant_error_map` |
+| **Multi-scale encoder** | Available if needed in the model yet not used; instantiated in the **AYNU block** of `__init__` — used only by auxiliary `encode_multiscale()` path, not the primary CORE encode path |
 
 ### Training Loss
 
@@ -265,23 +267,35 @@ L1 reconstruction loss
 + RVQ commitment loss
 ```
 
-Training uses AdamW with a cosine annealing learning-rate schedule. Stage 1 also contains training-time augmentation and validation visualization code, which is AYNU relative to the inference AUROC/AUPRC path.
+Training uses AdamW with a cosine annealing learning-rate schedule. Stage 1 also contains training-time augmentation and validation visualization code, which is AYNU relative to the inference AUROC path.
 
 ### Augmentations
 
+**Stage 1 internal augmentation** (applied in `training_step`, always active during training):
+
 <table>
 <tr>
-<td>↔️ Horizontal flip</td>
-<td>🔄 Small rotation around ±5°</td>
-<td>🎨 Stage 1 internal augmentation logic</td>
+<td>🎨 Intensity scaling</td>
+<td>🔄 Affine rotation/translation</td>
 </tr>
 </table>
 
-> ⚠️ **Note:** In the current `Train_framework.py`, `SliceDataModule` is instantiated without passing `augment=True`, so DataModule augmentations are disabled unless the script is modified. Stage 1 also has its own internal augmentation logic in `training_step`. **Record the exact command/script state used for reproducibility.**
+> ⚠️ **Only 2 transforms.** Intensity scaling uses prob=0.33, scale range 0.5–1.5. Affine uses rotation ±5°, horizontal-only translation ±5 px, prob=0.33. There is **no horizontal flip, no contrast adjustment, no Gaussian noise, and no zoom**. The affine transform does not apply any zoom/scale factor.
+
+**DataModule augmentation** (applied when `augment=True` is passed to `SliceDataModule`):
+
+<table>
+<tr>
+<td>↔️ Random flip</td>
+<td>🔄 Random rotation</td>
+</tr>
+</table>
+
+> ⚠️ **Note:** Random flip uses prob=0.5; random rotation ±5° uses prob=0.3. In the current `Train_framework.py`, `SliceDataModule` is instantiated **without** `augment=True`, so DataModule augmentations are **disabled by default**. Only the 2 Stage 1 internal transforms (intensity + affine) are active by default.
 
 ---
 
-## 🧩 Stage 2 — Fact-biT / Fact-biT
+## 🧩 Stage 2 — Factorized bi-directional transformer (Fact-biT)
 
 📄 **File:** `Model_Stage_2.py`
 
@@ -326,8 +340,6 @@ Important dependencies include:
 - `transformers` and/or `open_clip_torch` for BiomedCLIP during Stage 1 training
 - `lpips` for spatial perceptual heatmaps during inference
 - nibabel, NumPy, SciPy, scikit-image, matplotlib, tqdm, W&B
-
-> 🔒 **Reproducibility:** If you need exact checkpoint reproduction, use the pinned environment rather than unpinned latest package versions.
 
 ---
 
@@ -413,7 +425,7 @@ Main behavior:
 </tr>
 </table>
 
-The downstream ROC code uses patient/case/category identifiers to stratify results into synthetic and clinical groups.
+The downstream ROC code uses patient/case/category identifiers to stratify results into synthetic, clinical, or normal testing groups.
 
 ---
 
@@ -474,6 +486,8 @@ train_slice_max = 60
 
 This depends on correctly encoded `_slice_###` filenames.
 
+> ⚠️ The current `Train_framework.py` / `SliceDataModule` path still seed-splits `data_dir` into train/validation subsets at runtime. The split manifest JSON is a recorded reference, not an automatically enforced input to the current training entry point.
+
 ### 📊 Logging and Checkpointing
 
 `Train_framework.py` uses:
@@ -501,9 +515,9 @@ Main script: **`Inference_Pelvis_Experiments.py`**
 
 `load_models(stage1_ckpt, stage2_ckpt, device)` loads Stage 1 and Stage 2 checkpoints. Stage 1 perceptual-loss keys are stripped during inference loading, so **BiomedCLIP weights are not required for checkpoint loading at inference time**.
 
-### Step 1️⃣ — Healthy / Reference Calibration
+### Step 1️⃣ — Normal / Reference Calibration
 
-Calibration estimates per-pixel healthy/reference LPIPS statistics:
+Calibration estimates per-pixel normal/reference LPIPS statistics:
 
 ```text
 mu[h, w]    = mean LPIPS(input, healed) over calibration slices
@@ -571,6 +585,8 @@ python Inference_Pelvis_Experiments.py \
 | `--heal-temperature` | `0.3` |
 | `--heal-patterns` | `"2,3"` |
 | `--binary-threshold` | `0.60` |
+| `--binary-include-lpips-backflow` | enabled by default |
+| `--LPIPS-in-inp-threshold-back-to-binary-token-map` | `"(99, 0)"` |
 | `--token-surprisal-samples` | `50` |
 | `--token-surprisal-mask-ratio` | `0.90` |
 | `--token-surprisal-clamp` | `8.0` |
@@ -589,9 +605,9 @@ Inside `recursive_automask_v4_zscore(...)`, the CORE flow is:
 ```text
 1. Load input slice and extract slice position from filename when available
         ↓
-2. Compute Stage 1 reconstruction and RVQ tokens
+2. Compute Stage 1 reconstruction and RVQ tokens (obtain L1-and L2-tokens)
         ↓
-3. Compute token surprisal through repeated L1 token masking  →  ALM-B binary mask
+3. Compute token surprisal through random repeated L1-token masking  →  ALM-B binary mask
         ↓
 4. Heal checkerboard-masked tokens using Stage 2
         ↓
@@ -599,11 +615,11 @@ Inside `recursive_automask_v4_zscore(...)`, the CORE flow is:
         ↓
 6. Aggregate native and TTA heatmaps, commonly with geomean
         ↓
-7. Smooth and threshold by Z-score using the calibration map
+7. Smooth and threshold by Z-score using the calibration map → binarized maps
         ↓
-8. Binary_Sum_Heatmap = (ALM-A ∪ ALM-B) white-pixel count ##known as unified heatmap in Figure 1.d) in paper
+8. Final_Binary_sum_of_anomaly_maps = sum(ALM-A ∪ ALM-B ∪ LPIPS-backflow when enabled)
         ↓
-9. Write per-slice JSON fields, including Binary_Sum_Heatmap and token_surprisal_hot_px
+9. Write per-slice JSON fields, including Final_Binary_sum_of_anomaly_maps and token_surprisal_hot_px
         ↓
 10. Aggregate patient scores in ROC_Curves_Calculations.py
 ```
@@ -616,31 +632,36 @@ Main output file: **`results_v4_zscore.json`**
 
 | Field | Type | Meaning |
 |---|:---:|---|
-| `Binary_Sum_Heatmap` | 🟢 CORE | Count of binary-positive masked LPIPS pixels used in `sum_all_bars_score` |
-| `token_surprisal_hot_px` | 🟢 CORE | Count of hot token-surprisal pixels after clamping used in `sum_all_bars_score` |
+| `Final_Binary_sum_of_anomaly_maps` | 🟢 CORE | Per-slice final fused binary ALM count used in `sum_all_bars_score`; includes ALM-B and LPIPS-backflow by default |
+| `token_surprisal_hot_px` | 🟡 AYNU | Count of hot token-surprisal pixels after clamping, retained for audit/ablation only; not added separately by the ROC script |
+| `Final_Binary_sum_of_anomaly_maps_Base` | 🟡 AYNU | ALM-A binary count before token/backflow union |
+| `Final_Binary_sum_of_anomaly_maps_Token` | 🟡 AYNU | ALM-B token-surprisal binary count |
+| `Final_Binary_sum_of_anomaly_maps_Overlap` | 🟡 AYNU | ALM-A ∩ ALM-B overlap |
+| `Final_Binary_sum_of_anomaly_maps_LPIPS_Backflow` | 🟡 AYNU | LPIPS(Input, Inpainted) backflow binary count before union |
 | `path`, `filename` | 🔹 meta | Source slice path/name |
 | `category` | 🔹 meta | Cohort/anomaly category metadata |
 | `case_folder` | 🔹 meta | Patient/case grouping metadata |
 | `used_zscore` | 🔹 meta | Whether calibration Z-score thresholding was active |
 | `z_threshold` | 🔹 meta | Z-score threshold used if active |
-| `clamped_pixel_sum` | 🟡 AYNU | Auxiliary LPIPS-derived score; not the primary AUROC/AUPRC score |
+| `clamped_pixel_sum` | 🟡 AYNU | Auxiliary LPIPS-derived score; not the primary AUROC score |
 | `lpips_input_recon_sum_mask` | 🟡 AYNU | Auxiliary reconstruction diagnostic |
 | `sharpness_score`, `artifact_flag` | 🟡 AYNU | Auxiliary artifact/sharpness diagnostics |
 | `iteration_metrics` | 🟡 AYNU | Auxiliary iteration/refinement diagnostics |
 
-### 🖼️ CORE Visualization Outputs (per slice, saved by default)
+### 🖼️ Visualization Outputs
 
-| File | Panels | Purpose |
+| File | Figures shown | Purpose |
 |---|---|---|
-| `_Final_ALM_Heatmap.png` | 🟢 Input · Score · **ALM-A (LPIPS binary)** · **ALM-B (Token binary)** · Overlay · **A∪B combined mask** | Direct visual verification that the saved binary mask matches `Binary_Sum_Heatmap` |
-| `_Anomaly_Overlay.png` | Input · Healed · Heatmap overlay · LPIPS+Token overlay · LPIPS raw · **Binary+Token map (A∪B)** | Clinical-style overlay with annotation boxes |
-| `_full.png` | Multi-panel diagnostic figure | Full pipeline diagnostics (AYNU) |
+| `_Final_ALM_Arithmetic.png` | Input · normalized ALM-A · normalized ALM-B · normalized LPIPS-backflow if available · arithmetic overlay · binary component maps | Default qualitative figure; visual review only, not used by ROC |
+| `_Final_ALM_Heatmap.png` | Input · Score · **ALM-A (LPIPS binary)** · **ALM-B (Token binary)** · Overlay · final binary mask | Optional figure enabled by `--save-alm-heatmap-png`; can be interesting for debugging. |
+| `_Anomaly_Overlay.png` | Input · Healed · Heatmap overlay · LPIPS+Token overlay · LPIPS raw · **Binary+Token map** | Optional full analysis figure enabled by `--include-full-analysis-figure` |
+| `_full.png` | Multi-panel diagnostic figure | Full pipeline diagnostics for full overview of performance (🟡 AYNU) |
 
-> ✅ `_Final_ALM_Heatmap.png` is the recommended figure for verifying anomaly localization: the rightmost panel (A∪B combined mask) is the exact binary map whose white-pixel count equals `Binary_Sum_Heatmap`.
+> The ROC scripts read JSON fields, not PNGs. `_Final_ALM_Arithmetic.png` independently normalizes components before visualization, so it does not impact the numeric ROC score.
 
 ---
 
-## 📈 ROC / AUROC and PR / AUPRC Evaluation
+## 📈 ROC / AUROC and PR /  Evaluation
 
 Main script: **`ROC_Curves_Calculations.py`**
 
@@ -669,10 +690,18 @@ The patient-level score is:
 
 ```text
 sum_all_bars_score
-  = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
+  = Σ_slices(Final_Binary_sum_of_anomaly_maps)
 ```
 
-Labels are assigned from patient/case identifiers: `orig` cases are treated as normal/reference (`label = 0`) and all other cases as anomaly (`label = 1`). Confirm this naming convention before using the ROC script on new cohorts.
+`compute_patient_roc_and_auc(...)` then computes patient-level ROC/AUROC and PR/ using:
+
+| Variable | Definition |
+|---|---|
+| `score` | `sum_all_bars_score` |
+| `label = 0` | Normal/reference patients (`orig` identifier) |
+| `label = 1` | Anomaly patients |
+
+> 📌 Labels are assigned from patient/case identifiers: `orig` cases are treated as normal/reference and all other cases as anomaly. Confirm/change this naming convention before using the ROC script on new cohorts.
 
 ### 📊 Outputs
 
@@ -681,13 +710,23 @@ The ROC script can produce:
 - Merged JSON payloads
 - ROC curve figures
 - Precision-recall curve figures
-- AUROC/AUPRC metrics JSON
+- AUROC metrics JSON
 - Bootstrap confidence intervals
 - Threshold tables
 - Synthetic-vs-clinical split curves
 - Category-stratified sensitivity tables
 
 The script also contains many AYNU plotting functions for intermediate patient-level summaries.
+
+### ⚠️ Deprecation Notice
+
+> Older code or notes may refer to `clamped_pixel_sum`, `lpips_input_recon_sum_mask`, or `Binary_Sum_Heatmap` as the primary patient-level score. **That is not the current Pelvis ROC path.**
+>
+> The primary ROC path uses:
+> ```text
+> sum_all_bars_score = Σ_slices(Final_Binary_sum_of_anomaly_maps)
+> ```
+> `token_surprisal_hot_px` is retained only as an audit/ablation field and is **not** added separately to `sum_all_bars_score`.
 
 ---
 
@@ -701,18 +740,6 @@ The script also contains many AYNU plotting functions for intermediate patient-l
 2. Hard-coded defaults inside Python scripts
 3. Checkpoint hyperparameters
 4. Filename conventions
-5. The actual input JSON/data paths selected at runtime
-
-### 💾 For reproducibility, keep:
-
-- [x] Exact training commands
-- [x] Exact inference commands
-- [x] Checkpoint paths / checkpoint hashes if available
-- [x] Calibration `.npz` file
-- [x] `results_v4_zscore.json`
-- [x] Merged ROC JSON/metrics outputs
-- [x] The version of this code folder
-- [x] The split manifest JSON
 
 ---
 
@@ -723,29 +750,30 @@ The repository includes helper scripts for synthetic anomaly generation:
 - `Simulation_inference_v4_extended_CJG.py`
 - `Simluation_inference_v3_support_CJG.py`
 
-These are not on the primary AUROC/AUPRC computation path, but they document and support generation of synthetic variations such as blur/noise/inserted structures used in the broader experimental workflow.
-
-> 🔐 Be careful not to write identifiable DICOM metadata or patient information to public outputs when using these utilities.
+These are not on the primary AUROC computation path, but they document and support generation of synthetic variations such as blur/noise/inserted structures used in the broader experimental workflow. They are optional for you to use in case you would like to simulate global or prostate-local anomalies. 
 
 ---
 
-## ✅ Exact Replication Checklist
+## ✅ Framework Replication Checklist
 
 Use this checklist when trying to reproduce the Pelvis experiment:
 
 - [ ] Normal/reference NIfTI volumes were pre-sliced to `.npy` with the expected `_slice_###` naming convention
-- [ ] Training/validation/test splits are recorded and reused
+- [ ] Training/validation/test splits are recorded and reused in JSON file (***Train_Val_Test_Exact_DataSplits_LUND_PROBE.json***)
 - [ ] Stage 1 checkpoint path is recorded
 - [ ] Stage 2 checkpoint path is recorded
 - [ ] Calibration data are normal/reference and independent from anomaly evaluation cohorts
 - [ ] `--smoothing-kernel` is identical between calibration and inference
-- [ ] Slice indices are preserved in filenames for 3D RoPE and per-slice calibration lookup
-- [ ] The exact inference CLI command is saved
-- [ ] `results_v4_zscore.json` is retained for each cohort
-- [ ] ROC is computed from `sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)` per patient/case
-- [ ] `orig`/normal identifiers are correct before assigning ROC labels
-- [ ] Ground-truth/category labels are not used for model training
-- [ ] No patient-identifying information is exposed in public logs, filenames, figures, or W&B runs
+- [ ] Slice indices are preserved in filenames for 3D RoPE during training, inference, and per-slice calibration lookup
+- [ ] `NpySliceDataset.__getitem__` applies `np.rot90(arr, k=-1)` at load time before MONAI transforms — verify this rotation is consistent across training, calibration, and inference data loaders for your specific data. 
+- [ ] DataModule applies `Resize(320×320, area)` → `CenterSpatialCrop(256×256)` at load time — verify input `.npy` slices are compatible with this pipeline and that it works correctly for your data and not cropping important info.
+- [ ] Stage 1 decoder output is **NOT clamped** — the reconstruction is returned directly from the decoder; note this differs from the Brain version which clamps to `[-3, 3]`. Nonetheless, it's up to you to decide based on task. 
+- [ ] Stage 1 internal augmentation uses only 2 transforms (intensity + affine); you might need other or more intense augmentations based on task.
+- [ ] A `results_v4_zscore.json` file is obtained and saved for each cohort. Easy to keep track of cohorts this way.
+- [ ] ROC is computed from `sum_all_bars_score = Σ_slices(Final_Binary_sum_of_anomaly_maps)` per patient/case
+- [ ] Make sure that `orig`/normal identifiers for "Normal test samples" are correct before ROC-analysis. Change naming otherwise. 
+- [ ] Ground-truth anomaly categories are not used for model training, as only normal/reference shall be used for training. 
+- [ ] No patient-identifying information is exposed in public logs, filenames, figures, or W&B runs. 
 
 ---
 
@@ -757,13 +785,21 @@ Use this checklist when trying to reproduce the Pelvis experiment:
 | **Main data source** | LUND-PROBE-style pelvic MRI workflow | IXI + fastMRI-style brain workflow |
 | **Stage 2 positional encoding** | **3D RoPE** over row, column, slice | 2D RoPE over row/column |
 | **Codebook size** | 192 per RVQ level | 256 per RVQ level |
-| **Main ROC score** | `sum_all_bars_score = Σ_slices(...)` | Same sum-all-bars definition |
-| **Binary fusion** | ALM-A ∪ ALM-B (no erosion) | ALM-A ∪ ALM-B + edge erosion |
+| **Main ROC score** | `sum_all_bars_score = Σ_slices(Final_Binary_sum_of_anomaly_maps)` | Same final-binary-only sum-all-bars definition |
+| **Binary fusion** | ALM-A ∪ ALM-B ∪ LPIPS-backflow by default; edge erosion **disabled by default** | ALM-A ∪ ALM-B, optional LPIPS-backflow; edge erosion **disabled by default** |
 | **Primary LPIPS reference** | Input-vs-healed/inpainted | Reconstruction-vs-healed/inpainted |
 | **File format** | `.npy` slices | Primarily `.npz` with key `arr` |
 | **Slice index importance** | Used for 3D RoPE and per-slice calibration | Not used for 2D RoPE |
-| **CORE heatmap output** | `_Final_ALM_Heatmap.png` (6 panels: input, score, ALM-A, ALM-B, overlay, A∪B) | Same |
-| **`_Anomaly_Overlay.png`** | 6 panels incl. Binary+Token map (A∪B) | 7 panels incl. Binary+Token map (A∪B) and erosion effect |
+| **Default qualitative output** | `_Final_ALM_Arithmetic.png` | Same |
+| **`_Anomaly_Overlay.png`** | 6 panels incl. Binary+Token map (A∪B) | 7 panels incl. Binary+Token map (A∪B) (erosion panel unchanged when disabled) |
+| **Decoder output clamping** | **NOT clamped** — decoder output returned directly | Clamped to `[-3, 3]` via `torch.clamp` |
+| **DataModule preprocessing pipeline** | `np.rot90(k=-1)` at load time → `Resize(320×320, area)` → `CenterSpatialCrop(256×256)` | No resize/crop — images pre-sized during volume preprocessing; rotation applied at NIfTI export time |
+| **Stage 1 internal augmentation** | **2 transforms**: intensity scaling (prob=0.33) + affine rotation ±5°/horiz-only translation (prob=0.33) — no flip, no contrast, no noise, no zoom | **5 transforms**: intensity scaling, contrast (gamma 0.5–1.5), Gaussian noise (prob=0.50), affine ±15°/±15 px bidirectional/zoom 0.8–1.2, flip (prob=0.50) |
+| **Stage 2 mask implementation** | Python `for`-loop per sample in `_apply_mask()` and `_apply_block_mask()` | Fully vectorized tensor operations; no per-sample CPU syncs |
+| **`_masked_ce()` fallback** | Falls back to all tokens when no masked tokens exist | Avoids fallback via `clamp(min=1)` denominator; never leaves the GPU |
+| **MultiScaleEncoder code role** | Instantiated in **AYNU block** of `__init__`; `encode_multiscale()` in AYNU methods section; not on the CORE `encode_tokens()` path | Instantiated in **AYNU block** of `__init__`; `encode_multiscale()` in AYNU methods section; not on the CORE `encode_tokens()` path |
+| **Dataset class name** | `NpySliceDataset` | `SliceDataset` |
+| **DataModule directory input** | Single `data_dir` with seeded train/val split only | Supports separate `train_dir`/`val_dir` **or** single `data_dir` with seeded split |
 
 ---
 
@@ -795,16 +831,94 @@ Use this checklist when trying to reproduce the Pelvis experiment:
 </tr>
 <tr>
 <td>🔍</td>
-<td>The <b>CORE/AYNU comments</b> in the Python files are meant to help readers identify exactly what contributes to the reported AUROC/AUPRC.</td>
+<td>The <b>CORE/AYNU comments</b> in the Python files are meant to help readers identify exactly what contributes to the reported AUROC.</td>
 </tr>
 </table>
 
+
 ---
 
-<div align="center">
+## Thresholding and fusion definitions
 
-### 🦴 Two-Stage Unsupervised Anomaly Detection — Pelvic MRI
+| Component | Continuous source | Thresholding | Binary/fusion result | Main CLI controls |
+|---|---|---|---|---|
+| **ALM(A)** LPIPS/healing arm | Iteration-0 `LPIPS(Input, Healed)` heatmap, usually `geomean` TTA aggregation | Z-score mask from calibration: `z = (LPIPS - μ) / (σ + ε)`, default `z_threshold=2.0`; then masked score is binarized by `--binary-threshold`, default `0.60` | `binary_mask_base_i = (heatmap × z_mask) > binary_threshold` | `--z-threshold`, `--smoothing-kernel`, `--heatmap-aggregation`, `--binary-threshold` |
+| **ALM(B)** token-surprisal arm | Pseudo-PLL/NLL token-surprisal map from repeated random token masking | Values `<= --token-surprisal-clamp` are zeroed. Default clamp is `8.0`. In the final binary map, any remaining positive token pixel is included via `token_binary_i = token_surprisal_i > 0` | OR-unioned into ALM(A): `ALM(A) ∪ ALM(B)`; also stored separately as `token_surprisal_hot_px` | `--token-surprisal-samples`, `--token-surprisal-mask-ratio`, `--token-surprisal-clamp`, `--no-token-surprisal` |
+| **LPIPS-backflow** | Final `LPIPS(Input, Inpainted)` map from targeted inpainting | `build_lpips_backflow_mask(lpips_map, selector)`. Current CLI default selector `(99, 0)` means per-slice 99th percentile cutoff; valid alternatives are `(percentile, 0)`, `(0, fixed_threshold)`, or scalar fixed threshold. The helper fallback in `run_inference_v4_zscore(...)` still keeps a legacy `(97, 0)` default for direct calls. | OR-unioned after ALM(A)/ALM(B): `ALM(A) ∪ ALM(B) ∪ LPIPS-backflow`; contributes directly to `Final_Binary_sum_of_anomaly_maps` | `--binary-include-lpips-backflow` enabled by default, `--no-binary-include-lpips-backflow`, `--LPIPS-in-inp-threshold-back-to-binary-token-map` |
 
-*Research code for medical image analysis using deep learning.*
 
-</div>
+## 🔁 LPIPS-Backflow Controls and Ablation
+
+The current Pelvis experiment code includes LPIPS-backflow in the latest/default inference path. It mirrors the Brain binary-backflow mechanism, but uses the Pelvis-specific image pair:
+
+```text
+LPIPS(Input, Inpainted) → threshold → binary backflow mask → inserted into the final ALM mask counted by Final_Binary_sum_of_anomaly_maps
+```
+
+
+Selector behavior for LPIPS-backflow:
+
+```python
+# Example Percentile mode, current CLI default
+--LPIPS-in-inp-threshold-back-to-binary-token-map "(99, 0)"
+cutoff = percentile(LPIPS(Input, Inpainted), 99)
+backflow_mask = LPIPS(Input, Inpainted) > cutoff
+
+# Example Fixed-threshold mode
+--LPIPS-in-inp-threshold-back-to-binary-token-map "(0, 0.60)"
+cutoff = 0.60
+backflow_mask = LPIPS(Input, Inpainted) > cutoff
+```
+
+The parser rejects selectors where both percentile and fixed threshold are positive, because that would be ambiguous.
+
+### Useful ablation commands
+
+Default/latest Pelvis inference with LPIPS-backflow enabled and fast quantitative inference:
+
+```bash
+python Final_Clean_to_Github_Pelvis/Inference_Pelvis_Experiments.py \
+  --data-dir /path/to/pelvis_npy_folder \
+  --output-dir /path/to/output \
+  --device cuda:1 \
+  --no-figures-only-json #this command saves time to get quantitative results and no plots. 
+```
+
+No-backflow ablation with all other defaults unchanged:
+
+```bash
+python Final_Clean_to_Github_Pelvis/Inference_Pelvis_Experiments.py \
+  --data-dir /path/to/pelvis_npy_folder \
+  --output-dir /path/to/output_no_backflow \
+  --device cuda:1 \
+  --no-binary-include-lpips-backflow \
+  --no-figures-only-json
+```
+
+Change only the LPIPS-backflow thresholding rule:
+
+```bash
+python Final_Clean_to_Github_Pelvis/Inference_Pelvis_Experiments.py \
+  --data-dir /path/to/pelvis_npy_folder \
+  --output-dir /path/to/output_fixed_backflow \
+  --device cuda:1 \
+  --LPIPS-in-inp-threshold-back-to-binary-token-map "(0, 0.60)" \
+  --no-figures-only-json
+```
+
+### JSON diagnostics for ablations
+
+Each slice-level result now includes many metrics (useful for debugging):
+
+```text
+Final_Binary_sum_of_anomaly_maps                         final fused binary count used by ROC
+Final_Binary_sum_of_anomaly_maps_Base                    ALM(A) binary count before token/backflow
+Final_Binary_sum_of_anomaly_maps_Token                   ALM(B) token binary count
+Final_Binary_sum_of_anomaly_maps_Overlap                 ALM(A) ∩ ALM(B) overlap
+Final_Binary_sum_of_anomaly_maps_LPIPS_Backflow          LPIPS(Input, Inpainted) backflow binary count
+Final_Binary_sum_of_anomaly_maps_Overlap_LPIPS_Backflow
+Binary_Include_LPIPS_Backflow
+LPIPS_in_inp_threshold_back_to_binary_token_map
+LPIPS_in_inp_threshold_cutoff_value
+```
+---
