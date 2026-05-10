@@ -5,7 +5,10 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 from typing import Optional, Tuple
 from torch.distributions import Beta
-from Final_Clean_to_Github_Brain.Model_Stage1 import Stage1RVQVAE
+try:
+    from Final_Clean_to_Github_Brain.Model_Stage_1 import Stage1RVQVAE
+except ModuleNotFoundError:
+    from Model_Stage_1 import Stage1RVQVAE
 
 # Enable Flash/Memory-efficient SDPA for PyTorch 2.x
 if hasattr(torch.backends.cuda, "enable_flash_sdp"):
@@ -18,12 +21,12 @@ if hasattr(torch.backends.cuda, "enable_flash_sdp"):
 # CORE — AUROC pipeline
 # -----------------------------------------------------------------------------
 # Everything in this section is on the path that produces the per-slice
-# `Binary_Sum_Heatmap` field, which is the ONLY quantity consumed by the
+# `Final_Binary_sum_of_anomaly_maps` field, which is the ONLY quantity consumed by the
 # patient-level ROC / AUROC computation in the Plot_Bars script.
 #
 # Trace: model forward → ensemble_heal → LPIPS heatmap → binary mask fusion
 #        (masked_score ∪ token_surprisal ∪ lpips_backflow ∪ edge erosion)
-#        → Binary_Sum_Heatmap → patient aggregation → ROC / AUROC.
+#        → Final_Binary_sum_of_anomaly_maps → patient aggregation → ROC / AUROC.
 # =============================================================================
 # =============================================================================
 
