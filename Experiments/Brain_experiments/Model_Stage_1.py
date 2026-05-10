@@ -9,7 +9,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from monai.transforms import Compose, RandAffine, RandScaleIntensity
+from monai.transforms import Compose, RandAdjustContrast, RandAffine, RandFlip, RandGaussianNoise, RandScaleIntensity
 from vector_quantize_pytorch import ResidualVQ
 
 try:
@@ -23,12 +23,29 @@ try:
 except Exception:  # pragma: no cover - handled with a clear error message at runtime
     open_clip = None
 
+# =============================================================================
+# =============================================================================
+# CORE — AUROC pipeline
+# -----------------------------------------------------------------------------
+# Everything in this section is on the path that produces the per-slice
+# `Final_Binary_sum_of_anomaly_maps` field, which is the ONLY quantity consumed by the
+# patient-level ROC / AUROC computation in the Plot_Bars script.
+#
+# Trace: model forward → ensemble_heal → LPIPS heatmap → binary mask fusion
+#        (masked_score ∪ token_surprisal ∪ lpips_backflow ∪ edge erosion)
+#        → Final_Binary_sum_of_anomaly_maps → patient aggregation → ROC / AUROC.
+# =============================================================================
+# =============================================================================
+
+
 def default_init(module: nn.Module) -> nn.Module:
     if isinstance(module, (nn.Linear, nn.Conv2d)):
         nn.init.xavier_uniform_(module.weight)
         if module.bias is not None:
             nn.init.zeros_(module.bias)
     return module
+
+
 
 class PatchEmbedding(nn.Module):
     def __init__(self, in_channels: int = 1, embed_dim: int = 256, patch_size: int = 16):
@@ -41,6 +58,8 @@ class PatchEmbedding(nn.Module):
         tokens = self.proj(x)
         tokens = tokens.flatten(2).transpose(1, 2)
         return tokens
+
+
 
 class ViTEncoder(nn.Module):
     def __init__(self, embed_dim: int = 256, depth: int = 8, num_heads: int = 8, seq_len: int = 256):
@@ -59,6 +78,40 @@ class ViTEncoder(nn.Module):
     def forward(self, tokens: torch.Tensor) -> torch.Tensor:
         tokens = tokens + self.pos_embed
         return self.encoder(tokens)
+
+
+
+class MultiScaleEncoder(nn.Module):
+    """
+    Lightweight feature pyramid for RVQ-VAE encoder outputs.
+    Produces stride-1/2/4 token grids and fuses them with cross-scale attention.
+    """
+
+    def __init__(self, embed_dim: int = 256, num_scales: int = 3):
+        super().__init__()
+        self.num_scales = num_scales
+        self.scale_projs = nn.ModuleList([
+            nn.Conv2d(embed_dim, embed_dim, kernel_size=3, stride=2 ** i, padding=1)
+            for i in range(num_scales)
+        ])
+        self.cross_attn = nn.MultiheadAttention(embed_dim, 8, batch_first=True)
+
+    def forward(self, tokens: torch.Tensor, h: int, w: int) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+        bsz = tokens.size(0)
+        feat_2d = tokens.transpose(1, 2).view(bsz, -1, h, w)
+
+        scale_features: List[torch.Tensor] = []
+        for proj in self.scale_projs:
+            scale_feat = proj(feat_2d)
+            scale_features.append(scale_feat.flatten(2).transpose(1, 2))
+
+        query = scale_features[0]
+        key_value = torch.cat(scale_features, dim=1)
+        fused, _ = self.cross_attn(query, key_value, key_value)
+
+        return fused, scale_features
+
+
 
 class PixelShuffleDecoder(nn.Module):
     def __init__(self, embed_dim: int = 512, base_channels: int = 256, num_upsample: int = 3):
@@ -114,7 +167,6 @@ class PixelShuffleDecoder(nn.Module):
         return self.head(x)
 
 class Stage1RVQVAE(pl.LightningModule):
-
     def __init__(
         self,
         in_channels: int = 1,
@@ -127,20 +179,22 @@ class Stage1RVQVAE(pl.LightningModule):
         num_quantizers: int = 2,
         commitment_cost: float = 0.25,
         lr: float = 2e-4,
-        perceptual_weight: float = 0.9,
+        perceptual_weight: float = 0.5,
         biomedclip_model_name: str = "microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
         biomedclip_open_clip_model: Optional[str] = None,
         biomedclip_open_clip_pretrained: Optional[str] = None,
         biomedclip_feature_layer: str | int = "pooled",
         biomedclip_normalize_mode: str = "minmax",
         use_augmentations: bool = True,
+        sanity_check_aug: bool = True,
+        gaussian_noise_prob: float = 0.50,
+        gaussian_noise_std: float = 0.30,
     ):
         super().__init__()
         self.save_hyperparameters()
         torch.set_float32_matmul_precision("medium")
 
         seq_len = (image_size // patch_size) ** 2
-        # --- CORE: tokenizer + decoder used at inference ---
         self.patch_embed = PatchEmbedding(in_channels, embed_dim, patch_size)
         self.encoder = ViTEncoder(embed_dim, encoder_depth, encoder_heads, seq_len)
 
@@ -160,37 +214,50 @@ class Stage1RVQVAE(pl.LightningModule):
         num_upsample = int(math.log2(patch_size))
         self.decoder = PixelShuffleDecoder(embed_dim, base_channels=embed_dim, num_upsample=num_upsample)
         self.decode_adapter = None  # lazily-created 1x1 conv when decoder channels differ
-        self.seq_hw = int(math.sqrt(seq_len))
-
-        # --- AYNU: multiscale fusion (used only by encode_multiscale) ---
+        # --- AYNU begin: training-time augmentations + perceptual loss ---
+        # AYNU: multiscale fusion encoder (used only by encode_multiscale; not on the CORE encode_tokens path)
         self.num_scales = 3
         self.multi_scale_encoder = MultiScaleEncoder(embed_dim, num_scales=self.num_scales)
-
-        # --- AYNU: training-time losses, augmentations, and visualisation cache ---
         self.l1_loss = nn.L1Loss()
         self.lr = lr
+        self.seq_hw = int(math.sqrt(seq_len))
         self.use_augmentations = use_augmentations
+        self.sanity_check_aug = sanity_check_aug
         self._aug_viz_done = False
+
+        # cache for validation visualization
         self._val_vis_cache = None
-        translate_pix = 5
-        rotation_rad = math.radians(5)  # ~5 degrees
+
+        # MONAI image augmentations with a kill switch
+        translate_pix = 15
+        rotation_rad = math.radians(15)  # ~5 degrees
+        zoom_min, zoom_max = 0.8, 1.2
+        self.aug_intensity = RandScaleIntensity(factors=0.10, prob=0.33)  # brightness-like scaling
+        self.aug_contrast = RandAdjustContrast(gamma=(0.5, 1.5), prob=0.33)  # gamma-based contrast shift
+        self.aug_noise = RandGaussianNoise(prob=gaussian_noise_prob, mean=0.0, std=gaussian_noise_std)
+        self.aug_affine = RandAffine(
+            prob=0.33,
+            rotate_range=(-rotation_rad, rotation_rad),
+            translate_range=(translate_pix, translate_pix),      # horizontal + vertical translation
+            scale_range=(zoom_min - 1.0, zoom_max - 1.0),         # zoom 0.9x to 1.1x
+            padding_mode="border",
+        )
+        self.aug_flip = RandFlip(prob=0.5, spatial_axis=2)  # horizontal (left-right) flip
         self.train_aug = Compose([
-            RandScaleIntensity(factors=0.1, prob=0.33),   # brightness-like scaling
-            RandAffine(
-                prob=0.33,
-                rotate_range=(-rotation_rad, rotation_rad),
-                translate_range=(translate_pix, 0.0),      # horizontal-only translation
-                padding_mode="border",
-            ),
+            self.aug_intensity,
+            self.aug_contrast,
+            self.aug_noise,
+            self.aug_affine,
+            self.aug_flip,
         ]) if use_augmentations else None
 
-        # Initialize repository-owned modules; do not initialize the pretrained BiomedCLIP loss below.
+        # Initialize only our trainable modules (NOT perceptual loss which has pretrained weights)
         self.patch_embed.apply(default_init)
         self.encoder.apply(default_init)
         self.multi_scale_encoder.apply(default_init)
         self.decoder.apply(default_init)
 
-        # AYNU: perceptual term used only by training/validation methods.
+        # Perceptual term uses BiomedCLIP vision tower
         self.perceptual_loss = BiomedCLIPLoss(
             weight=perceptual_weight,
             model_name=biomedclip_model_name,
@@ -199,6 +266,7 @@ class Stage1RVQVAE(pl.LightningModule):
             feature_layer=biomedclip_feature_layer,
             normalize_mode=biomedclip_normalize_mode,
         )
+        # --- AYNU end ---
 
     def encode_tokens(self, images: torch.Tensor):
         tokens = self.patch_embed(images)
@@ -219,7 +287,8 @@ class Stage1RVQVAE(pl.LightningModule):
                 self.decode_adapter = nn.Conv2d(feat.shape[1], expected_c, kernel_size=1, bias=False).to(feat.device)
             feat = self.decode_adapter(feat)
 
-        return self.decoder(feat)
+        recon = self.decoder(feat)
+        return torch.clamp(recon, min=-3.0, max=3.0)
 
     def forward(self, images: torch.Tensor):
         tokens, quantized, indices, commit_loss = self.encode_tokens(images)
@@ -232,14 +301,9 @@ class Stage1RVQVAE(pl.LightningModule):
             "quant_error_map": q_error,
         }
 
-    # =============================================================================
-    # AVAILABLE YET NOT ROC-Relevant
-    # -----------------------------------------------------------------------------
-    # The items below are not on the AUROC reproduction path. They are kept for
-    # transparency and for readers interested in alternative analyses, training,
-    # calibration generation, or visualisation. None of them affects the
-    # patient-level AUROC reported in the manuscript.
-    # =============================================================================
+    # =========================================================================
+    # AYNU — auxiliary methods of Stage1RVQVAE (training, validation, figures)
+    # =========================================================================
 
     def encode_multiscale(self, images: torch.Tensor):
         tokens = self.patch_embed(images)
@@ -255,7 +319,7 @@ class Stage1RVQVAE(pl.LightningModule):
             batch["MRI_image"] if isinstance(batch, dict) else (batch[0] if isinstance(batch, (list, tuple)) else batch)
         )
         if self.use_augmentations and self.train_aug is not None:
-            if (not self._aug_viz_done) and batch_idx == 0:
+            if self.sanity_check_aug and (not self._aug_viz_done) and batch_idx == 0:
                 self._save_aug_preview(images)
             images = self.train_aug(images)
         outputs = self(images)
@@ -266,11 +330,13 @@ class Stage1RVQVAE(pl.LightningModule):
         if torch.is_tensor(commit) and commit.ndim > 0:
             commit = commit.mean()
         loss = rec_loss + perceptual + commit
+        psnr = self._compute_psnr(recon, images)
         self.log_dict({
             "train/l1": rec_loss,
             "train/perceptual": perceptual,
             "train/commit": commit,
             "train/loss": loss,
+            "train/psnr": psnr,
         }, prog_bar=True, on_step=True, on_epoch=True, batch_size=images.size(0))
         return loss
 
@@ -288,11 +354,13 @@ class Stage1RVQVAE(pl.LightningModule):
         if torch.is_tensor(commit) and commit.ndim > 0:
             commit = commit.mean()
         loss = rec_loss + perceptual + commit
+        psnr = self._compute_psnr(recon, images)
         self.log_dict({
             "val/l1": rec_loss,
             "val/perceptual": perceptual,
             "val/commit": commit,
             "val/loss": loss,
+            "val/psnr": psnr,
         }, prog_bar=True, on_epoch=True, batch_size=images.size(0))
 
         # Store for visualization (rank zero only) using first validation batch
@@ -315,6 +383,73 @@ class Stage1RVQVAE(pl.LightningModule):
             "lr_scheduler": scheduler,
         }
 
+    @torch.no_grad()
+    def _save_aug_preview(self, images: torch.Tensor, num_samples: int = 8, num_augments: int = 3):
+        """Save a visualization grid of augmented samples for sanity-checking."""
+        if not (self.use_augmentations and self.train_aug is not None):
+            return
+        self._aug_viz_done = True
+
+        save_dir = os.path.join(os.path.dirname(__file__), "FastMRI_RQC_ValExamples")
+        os.makedirs(save_dir, exist_ok=True)
+        save_path = os.path.join(save_dir, "augmentations_preview.png")
+
+        base = images[:num_samples].detach().cpu()
+
+        transforms = [
+            ("original", None),
+            ("intensity", self.aug_intensity),
+            ("contrast", self.aug_contrast),
+            ("noise", self.aug_noise),
+            ("affine", self.aug_affine),
+            ("flip", self.aug_flip),
+            ("combined", self.train_aug),
+        ]
+
+        rows = len(transforms)
+        cols = min(num_samples, base.size(0))
+        fig, axes = plt.subplots(rows, cols, figsize=(3 * cols, 3 * rows))
+        if rows == 1:
+            axes = np.expand_dims(axes, 0)
+
+        def _apply_with_prob_one(transform, tensor):
+            if hasattr(transform, "prob"):
+                prev = transform.prob
+                transform.prob = 1.0
+                try:
+                    return transform(tensor)
+                finally:
+                    transform.prob = prev
+            return transform(tensor)
+
+        for r, (label, transform) in enumerate(transforms):
+            if label == "original":
+                aug = base
+            elif label == "combined":
+                # Force all component probs to 1.0 for combined preview
+                prob_backup = []
+                for t in self.train_aug.transforms:
+                    if hasattr(t, "prob"):
+                        prob_backup.append((t, t.prob))
+                        t.prob = 1.0
+                try:
+                    aug = self.train_aug(base.clone()).detach().cpu()
+                finally:
+                    for t, prob in prob_backup:
+                        t.prob = prob
+            else:
+                aug = _apply_with_prob_one(transform, base.clone()).detach().cpu()
+            for c in range(cols):
+                aimg = aug[c].squeeze().numpy()
+                aimg = self._scale_for_display(aimg)
+                axes[r, c].imshow(aimg, cmap="gray", interpolation="nearest")
+                axes[r, c].axis("off")
+                axes[r, c].set_title(label)
+
+        plt.tight_layout()
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+
     def _compute_psnr(self, recon: torch.Tensor, target: torch.Tensor) -> float:
         """Compute PSNR between reconstruction and target."""
         mse = F.mse_loss(recon, target).item()
@@ -326,6 +461,17 @@ class Stage1RVQVAE(pl.LightningModule):
             data_range = 1.0
         psnr = 10 * math.log10((data_range ** 2) / mse)
         return psnr
+
+    @staticmethod
+    def _scale_for_display(arr: np.ndarray) -> np.ndarray:
+        """Percentile-based contrast scaling for visualization."""
+        if arr.size == 0:
+            return arr
+        vmin, vmax = np.percentile(arr, [1, 99])
+        if vmin == vmax:
+            vmin, vmax = vmin - 1.0, vmax + 1.0
+        arr = np.clip(arr, vmin, vmax)
+        return (arr - vmin) / (vmax - vmin + 1e-8)
 
     def visualize_reconstruction(
         self,
@@ -348,25 +494,11 @@ class Stage1RVQVAE(pl.LightningModule):
             max_samples: Maximum number of samples to visualize
         """
         if save_dir is None:
-            save_dir = os.path.join(os.path.dirname(__file__), "RQC_ValExamples")
+            save_dir = os.path.join(os.path.dirname(__file__), "FastMRI_RQC_ValExamples")
         os.makedirs(save_dir, exist_ok=True)
 
-        # Filter for slices 40-48 if file_paths provided
+        # Do not assume slice indices in filenames; sample from available batch
         valid_indices = list(range(images.size(0)))
-        if file_paths is not None:
-            filtered = []
-            for i, fp in enumerate(file_paths):
-                basename = os.path.basename(fp)
-                # Extract slice index from filename like "patient_slice_044.npy"
-                if "_slice_" in basename:
-                    try:
-                        slice_idx = int(basename.split("_slice_")[1].split(".")[0])
-                        if 40 <= slice_idx <= 48:
-                            filtered.append(i)
-                    except (ValueError, IndexError):
-                        pass
-            if filtered:
-                valid_indices = filtered
 
         # Sample up to max_samples
         if len(valid_indices) > max_samples:
@@ -380,6 +512,8 @@ class Stage1RVQVAE(pl.LightningModule):
         for sample_idx, idx in enumerate(valid_indices):
             img = images[idx].detach().cpu().squeeze().numpy()
             rec = recon[idx].detach().cpu().squeeze().numpy()
+            img_disp = self._scale_for_display(img)
+            rec_disp = self._scale_for_display(rec)
             
             # Get indices for this sample - shape is (seq_len, num_quantizers)
             idx_tensor = indices[idx].detach().cpu()
@@ -402,14 +536,14 @@ class Stage1RVQVAE(pl.LightningModule):
 
             # Input image
             ax = axes[0, 0]
-            im = ax.imshow(img, cmap='gray', interpolation='nearest')
+            im = ax.imshow(img_disp, cmap='gray', interpolation='nearest')
             ax.set_title(f"Input\nShape: {img.shape}, Range: [{img.min():.2f}, {img.max():.2f}]")
             ax.axis('off')
             plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
             # Reconstructed image
             ax = axes[0, 1]
-            im = ax.imshow(rec, cmap='gray', interpolation='nearest')
+            im = ax.imshow(rec_disp, cmap='gray', interpolation='nearest')
             ax.set_title(f"Reconstruction\nShape: {rec.shape}, Range: [{rec.min():.2f}, {rec.max():.2f}]")
             ax.axis('off')
             plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -438,45 +572,6 @@ class Stage1RVQVAE(pl.LightningModule):
 
         print(f"Saved {len(valid_indices)} validation visualizations to {save_dir}")
 
-    @torch.no_grad()
-    def _save_aug_preview(self, images: torch.Tensor, num_samples: int = 4, num_augments: int = 3):
-        """Save a quick visualization grid of augmentations for sanity-checking."""
-        if not (self.use_augmentations and self.train_aug is not None):
-            return
-        self._aug_viz_done = True
-
-        save_dir = os.path.join(os.path.dirname(__file__), "RQC_ValExamples")
-        os.makedirs(save_dir, exist_ok=True)
-        save_path = os.path.join(save_dir, "augmentations_preview.png")
-
-        base = images[:num_samples].detach().cpu()
-        aug_sets = []
-        for _ in range(num_augments):
-            aug_sets.append(self.train_aug(base.clone()).detach().cpu())
-
-        rows = 1 + num_augments
-        cols = min(num_samples, base.size(0))
-        fig, axes = plt.subplots(rows, cols, figsize=(3 * cols, 3 * rows))
-        if rows == 1:
-            axes = np.expand_dims(axes, 0)
-
-        for c in range(cols):
-            img = base[c].squeeze().numpy()
-            axes[0, c].imshow(img, cmap="gray", interpolation="nearest")
-            axes[0, c].axis("off")
-            axes[0, c].set_title("original")
-
-        for r, aug in enumerate(aug_sets, start=1):
-            for c in range(cols):
-                aimg = aug[c].squeeze().numpy()
-                axes[r, c].imshow(aimg, cmap="gray", interpolation="nearest")
-                axes[r, c].axis("off")
-                axes[r, c].set_title(f"aug {r}")
-
-        plt.tight_layout()
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
-        plt.close(fig)
-
     def on_validation_epoch_end(self):
         """Visualize a few samples at the end of every validation epoch (rank zero)."""
         if self._val_vis_cache is None:
@@ -489,18 +584,21 @@ class Stage1RVQVAE(pl.LightningModule):
             recon=cache["recon"],
             indices=cache["indices"],
             file_paths=cache.get("paths"),
-            save_dir=os.path.join(os.path.dirname(__file__), "RQC_ValExamples"),
+            save_dir=os.path.join(os.path.dirname(__file__), "FastMRI_RQC_ValExamples"),
             max_samples=4,
         )
 
 # =============================================================================
-# AVAILABLE YET NOT ROC-Relevant
-# -----------------------------------------------------------------------------
-# The items below are not on the AUROC reproduction path. They are kept for
-# transparency and for readers interested in alternative analyses, training,
-# calibration generation, or visualisation. None of them affects the
-# patient-level AUROC reported in the manuscript.
 # =============================================================================
+# AYNU — AVAILABLE YET NOT ROC-Relevant(auxiliary code, NOT on the AUROC path)
+# -----------------------------------------------------------------------------
+# Code below is preserved for reproducibility, training, alternate scoring,
+# bounding-box evaluation tables, sanity-check figures, and per-patient bar
+# charts. None of it feeds the AUROC. Skim freely; do not let it distract
+# from the CORE pipeline above.
+# =============================================================================
+# =============================================================================
+
 
 class PerceptualLossStub(nn.Module):
     """Lightweight perceptual placeholder; BiomedCLIP dependency removed."""
@@ -514,6 +612,8 @@ class PerceptualLossStub(nn.Module):
             return recon.new_zeros(())
         # Fallback to simple L1 to preserve a small perceptual-like regularizer without external backbones
         return self.weight * F.l1_loss(recon, target)
+
+
 
 class BiomedCLIPLoss(nn.Module):
     """BiomedCLIP-based perceptual loss using the vision tower."""
@@ -593,7 +693,8 @@ class BiomedCLIPLoss(nn.Module):
         except Exception as exc:
             raise RuntimeError(
                 "Failed to load BiomedCLIP with open_clip. "
-                "Provide open_clip model/pretrained IDs or ensure the HF checkpoint is available locally."
+                "Provide --biomedclip-open-clip-model and --biomedclip-open-clip-pretrained, "
+                "or ensure the HF checkpoint is available locally."
             ) from exc
 
     def _ensure_device(self, device: torch.device) -> None:
@@ -686,32 +787,3 @@ class BiomedCLIPLoss(nn.Module):
         loss = 1.0 - (recon_feats * target_feats).sum(dim=-1)
         return self.weight * loss.mean()
 
-class MultiScaleEncoder(nn.Module):
-    """
-    Lightweight feature pyramid for RVQ-VAE encoder outputs.
-    Produces stride-1/2/4 token grids and fuses them with cross-scale attention.
-    """
-
-    def __init__(self, embed_dim: int = 256, num_scales: int = 3):
-        super().__init__()
-        self.num_scales = num_scales
-        self.scale_projs = nn.ModuleList([
-            nn.Conv2d(embed_dim, embed_dim, kernel_size=3, stride=2 ** i, padding=1)
-            for i in range(num_scales)
-        ])
-        self.cross_attn = nn.MultiheadAttention(embed_dim, 8, batch_first=True)
-
-    def forward(self, tokens: torch.Tensor, h: int, w: int) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-        bsz = tokens.size(0)
-        feat_2d = tokens.transpose(1, 2).view(bsz, -1, h, w)
-
-        scale_features: List[torch.Tensor] = []
-        for proj in self.scale_projs:
-            scale_feat = proj(feat_2d)
-            scale_features.append(scale_feat.flatten(2).transpose(1, 2))
-
-        query = scale_features[0]
-        key_value = torch.cat(scale_features, dim=1)
-        fused, _ = self.cross_attn(query, key_value, key_value)
-
-        return fused, scale_features
