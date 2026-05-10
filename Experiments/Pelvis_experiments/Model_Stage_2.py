@@ -440,7 +440,7 @@ class FactorizedMaskGIT(pl.LightningModule):
         return torch.tensor(slice_indices, dtype=torch.long, device=device)
 
     # =============================================================================
-    # AVAILABLE YET NOT USED
+    # AVAILABLE YET NOT ROC-Relevant
     # -----------------------------------------------------------------------------
     # The items below are not on the AUROC reproduction path. They are kept for
     # transparency and for readers interested in alternative analyses, training,
@@ -1456,7 +1456,7 @@ class FactorizedMaskGIT(pl.LightningModule):
         return current, probs_final
 
 # =============================================================================
-# AVAILABLE YET NOT USED
+# AVAILABLE YET NOT ROC-Relevant
 # -----------------------------------------------------------------------------
 # The items below are not on the AUROC reproduction path. They are kept for
 # transparency and for readers interested in alternative analyses, training,
