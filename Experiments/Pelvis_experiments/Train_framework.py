@@ -5,9 +5,14 @@ from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.loggers import CSVLogger, WandbLogger
 import torch
 
-from dataset import SliceDataModule
-from Final_Clean_to_Github_Pelvis.Model_Stage_1 import Stage1RVQVAE
-from Final_Clean_to_Github_Pelvis.Model_Stage_2 import FactorizedMaskGIT
+try:
+    from .dataset import SliceDataModule
+    from .Model_Stage_1 import Stage1RVQVAE
+    from .Model_Stage_2 import FactorizedMaskGIT
+except ImportError:
+    from dataset import SliceDataModule
+    from Model_Stage_1 import Stage1RVQVAE
+    from Model_Stage_2 import FactorizedMaskGIT
 
 
 def parse_args():
