@@ -42,13 +42,10 @@ CANONICAL_CATEGORY_RULES: Tuple[Tuple[str, str], ...] = (
     ("RandomNoise", "randomnoise"),
     ("RandomSpike", "randomspike"),
     ("RandomMotion", "randommotion"),
-    ("RandomCTVInsertion", "randomctvinsertion"),
-    ("CTVAverage", "ctvaverage"),
-    ("CTVBlur", "ctvblur"),
     ("Stor_T2_till_sCT", "stor_t2_till_sct"),
     ("Spacer", "spacer"),
     ("ClinicalVariations", "clinicalvariations"),
-    ("Unknown", "unknown"),
+    ("Unknown", "unknown"), #Brachythearpy applicators
     ("SyntheticVariations", "syntheticvariations"),
 )
 
