@@ -9,7 +9,7 @@
 [![MONAI](https://img.shields.io/badge/MONAI-Medical_AI-red.svg)](https://monai.io/)
 [![Research](https://img.shields.io/badge/Status-Research_Code-yellow.svg)]()
 
-*A two-stage unsupervised anomaly-detection framework that learns only from normal T1-weighted brain MRI slices and detects deviations from the learned normal distribution.*
+*A two-stage unsupervised anomaly-detection framework that learns only from healthy T1-weighted brain MRI slices and detects deviations from the learned healthy distribution.*
 
 </div>
 
@@ -30,7 +30,7 @@
 **🏗️ Architecture**
 - [Method Overview](#-method-overview)
 - [Stage 1: RVQ-VAE](#-stage-1--rvq-vae)
-- [Stage 2: Fact-biT](#-stage-2--fact-bit)
+- [Stage 2: Factorized MaskGIT](#-stage-2--factorized-maskgit)
 
 </td>
 <td width="50%" valign="top">
@@ -58,7 +58,7 @@
 
 ## 🎯 Overview & Core Concept
 
-This repository contains the cleaned **Brain MRI implementation** of a two-stage unsupervised anomaly-detection framework. The training pipeline learns only from normal T1-weighted brain MRI slices, and the inference pipeline detects deviations from the learned normal distribution.
+This repository contains the **Brain MRI implementation** of a two-stage unsupervised anomaly-detection framework. The training pipeline learns only from normal/reference T1-weighted brain MRI slices, and the inference pipeline detects deviations from the learned normal/reference distribution.
 
 The code has been organized around a **CORE vs. AYNU** concept:
 
@@ -83,65 +83,61 @@ The primary AUROC path flows through the following stages:
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                         INPUT SLICE                              │
+│                         INPUT SLICE                             │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│          Stage 1: RVQ-VAE  →  reconstruction / tokens            │
+│          Stage 1: RVQ-VAE  →  reconstruction / tokens           │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│      Stage 2: Fact-biT  →  healing / inpainting                   │
+│      Stage 2: MaskGIT  →  healing / inpainting                  │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│      LPIPS (reconstruction vs. healed)  →  heatmap               │
+│      LPIPS (reconstruction vs. healed)  →  heatmap              │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│           Binary + token-surprisal fusion                        │
-└────────────────────────────┬────────────────────────────────────┘
-                             ▼
-┌──────────────────────┐         ┌──────────────────────────────┐
-│  Binary_Sum_Heatmap  │         │  token_surprisal_hot_px      │
-│      (per slice)     │         │         (per slice)           │
-└──────────┬───────────┘         └──────────────┬───────────────┘
-           │                                    │
-           └────────────────┬───────────────────┘
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Patient-level:  sum_all_bars_score                              │
-│  = Σ_slices (token_surprisal_hot_px + Binary_Sum_Heatmap)        │
+│      perceptual + token-surprisal + LPIPS-backflow fusion       │
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                       ROC  /  AUROC                              │
+│  Final_Binary_sum_of_anomaly_maps (per slice)                   │
+└────────────────────────────┬────────────────────────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Patient-level:  sum_all_bars_score                             │
+│  = Σ_slices(Final_Binary_sum_of_anomaly_maps)                   │
+└────────────────────────────┬────────────────────────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        ROC / AUROC-analysis                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### 🟢 CORE Output Fields
 
-The per-slice fields consumed by the primary patient-level ROC pipeline:
+The per-slice field consumed by the primary patient-level ROC pipeline:
 
 | Field | Role |
 |---|---|
-| `Binary_Sum_Heatmap` | Binary/perceptual fused pixel count |
-| `token_surprisal_hot_px` | Token-surprisal hot-pixel count |
+| `Final_Binary_sum_of_anomaly_maps` | Final binary ALM mask count after ALM-A ∪ ALM-B fusion, optional LPIPS-backflow, and optional edge erosion (disabled by default). |
 
-`ROC_Curve_Calculations.py` aggregates these fields into a patient-level score:
+`ROC_Curve_Calculations.py` aggregates this field into a patient-level score:
 
 ```text
-sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
+sum_all_bars_score = Σ_slices(Final_Binary_sum_of_anomaly_maps)
 ```
 
-This is intentionally identical to the pelvis pipeline definition. `binary_token_score` may still appear in Brain outputs as a **backward-compatible alias**, but it aliases the corrected `sum_all_bars_score` in the current code.
+`token_surprisal_hot_px` is still written to JSON for audit/debugging, but it is **not** added separately to the ROC score. This avoids double-counting token-surprisal evidence because `Final_Binary_sum_of_anomaly_maps` already contains ALM-B/token pixels when `--binary-include-token-surprisal` is enabled. `binary_token_score` may still appear in Brain ROC outputs as a **backward-compatible alias**, but it aliases this final-binary-only `sum_all_bars_score` in the current code.
 
 Then `compute_fastmri_roc_and_auc(...)` computes ROC/AUROC using `sum_all_bars_score` and cohort labels.
 
 ### 🟡 AYNU Examples
 
 <details>
-<summary><b>Click to expand — useful but not the primary AUROC score</b></summary>
+<summary><b>Click to expand — useful for debugging but not for the primary AUROC-analysis</b></summary>
 
 - Bounding-box overlap metrics
 - Per-slice precision / F1 localization metrics
@@ -163,7 +159,7 @@ Final_Clean_to_Github_Brain/
 │
 ├── 🟢 CORE — Models & Pipeline
 │   ├── Model_Stage1.py                      # Stage 1 RVQ-VAE model
-│   ├── Model_Stage_2.py                     # Stage 2 Fact-biT model
+│   ├── Model_Stage_2.py                     # Stage 2 Factorized MaskGIT model
 │   ├── Train_framework.py                   # PyTorch Lightning training entry point
 │   ├── dataset.py                           # Slice Dataset/DataModule for .npz/.png
 │   ├── Inference_Brain_Experiments.py       # Recursive-AutoMask V4 inference + calibration
@@ -171,7 +167,6 @@ Final_Clean_to_Github_Brain/
 │
 ├── ⚙️  Configuration & Documentation
 │   ├── config_yaml.yaml                     # Reference config summary (not auto-loaded)
-│   ├── Instructions_Brain.md                # Internal CORE/AYNU refactor instructions
 │   └── Train_Val_Test_Exact_DataSplits_IXI_fastMRI.json   # Recorded data splits
 │
 └── 🔧 Data Preparation & Utilities
@@ -199,19 +194,40 @@ The framework has **two learned stages**:
 </tr>
 <tr>
 <td align="center"><b>1️⃣<br>Stage 1</b></td>
-<td><b>RVQ-VAE</b><br><sub>ViT encoder, multi-scale encoder, residual vector quantization, PixelShuffle decoder</sub></td>
-<td>Learns a discrete latent representation of normal brain appearance</td>
+<td><b>RVQ-VAE</b><br><sub>ViT encoder, residual vector quantization, PixelShuffle decoder</sub></td>
+<td>Learns a discrete latent representation of healthy brain appearance</td>
 </tr>
 <tr>
 <td align="center"><b>2️⃣<br>Stage 2</b></td>
-<td><b>Fact-biT transformer</b></td>
+<td><b>Factorized MaskGIT transformer</b></td>
 <td>Learns distributions over Stage 1 codebook tokens and heals masked/suspect tokens</td>
 </tr>
 </table>
 
 ### 🎛️ Recursive-AutoMask V4 (Inference)
 
-At inference, **Recursive-AutoMask V4** performs calibration, healing, perceptual comparison, binary-mask fusion, and optional targeted inpainting. The main heatmap branch is **reconstruction-referenced**:
+At inference, **Recursive-AutoMask V4** computes three complementary anomaly signals:
+
+<table>
+<tr>
+<th>Signal</th>
+<th>Description</th>
+</tr>
+<tr>
+<td><b>Token surprisal</b></td>
+<td>Repeated random masking of Stage 1 L1 tokens, followed by Stage 2 prediction and NLL scoring of the true tokens.</td>
+</tr>
+<tr>
+<td><b>LPIPS healing heatmap</b></td>
+<td>Stage 2 heals checkerboard-masked token patterns; spatial LPIPS compares the Stage 1 reconstruction with the healed reconstruction; calibrated Z-score thresholding converts the heatmap to a binary detection mask (ALM-A).</td>
+</tr>
+<tr>
+<td><b>LPIPS-backflow</b></td>
+<td>After targeted inpainting, spatial LPIPS compares Stage 1 reconstruction vs. inpainted reconstruction. The map can be thresholded to a binary backflow mask and OR-unioned into the final binary ALM mask (disabled by default in the Brain version).</td>
+</tr>
+</table>
+
+The main heatmap branch is **reconstruction-referenced**:
 
 | Phase | LPIPS Reference |
 |---|---|
@@ -237,10 +253,10 @@ At inference, **Recursive-AutoMask V4** performs calibration, healing, perceptua
 | **Patch embedding** | `Conv2d` with `kernel_size = stride = patch_size` |
 | **Default patch size** | `8` → `32 × 32 = 1024` tokens |
 | **Encoder** | ViT-style Transformer encoder, depth 8, 8 heads |
-| **Multi-scale encoder** | Convolutional feature pyramid fused with attention |
 | **Quantizer** | `ResidualVQ`, 2 quantizers, codebook size 256 |
 | **Decoder** | PixelShuffle decoder, output clamped to `[-3, 3]` |
 | **Forward output** | `recon`, `indices`, `commit_loss`, `quant_error_map` |
+| **Multi-scale encoder** | Convolutional feature pyramid fused with attention; instantiated in the **AYNU block** of `__init__` — used only by auxiliary `encode_multiscale()` path, not the primary CORE encode path |
 
 ### Training Loss
 
@@ -250,7 +266,11 @@ L1 reconstruction loss
 + RVQ commitment loss
 ```
 
-### MONAI Augmentations (when enabled)
+Stage 1 also contains training-time validation visualization code, which is AYNU relative to the inference AUROC path.
+
+### Augmentations
+
+**DataModule augmentation** (applied at the `SliceDataModule` level when `--augment` is passed):
 
 <table>
 <tr>
@@ -265,11 +285,11 @@ L1 reconstruction loss
 </tr>
 </table>
 
-> ⚠️ **Note:** In `Train_framework.py`, Stage 1 is instantiated with `use_augmentations=False` in the current script body even though the DataModule can apply augmentations through `--augment`. The active augmentation source depends on the training command/script settings. **Record the exact command used for reproducibility.**
+> ⚠️ **Augmentation source in `Train_framework.py`:** Stage 1 is instantiated with `use_augmentations=False` — model-internal augmentation is **OFF**. However, `parser.set_defaults(augment=True)` means DataModule augmentation is **ON by default** (the 5 transforms listed above are applied at the DataModule level unless `--no-augment` is passed). **Record the exact command used for reproducibility.**
 
 ---
 
-## 🧩 Stage 2 — Fact-biT
+## 🧩 Stage 2 — Factorized MaskGIT
 
 📄 **File:** `Model_Stage_2.py`
 
@@ -330,7 +350,8 @@ The standard saved array format:
 
 where `arr` is a 2D `float32` image slice.
 
-- `dataset.py` supports `.npz` and image files such as `.png` for training/validation (via `--file-ext`).
+- `dataset.py` (`SliceDataset` / `SliceDataModule`) supports `.npz` and image files such as `.png` for training/validation (via `--file-ext`).
+- `SliceDataModule` supports either **separate `--train-dir` / `--val-dir` paths** or a single `--data-dir` with a seeded patient-level split.
 - The inference dataloader in `Inference_Brain_Experiments.py` **recursively** supports `.npz` and `.npy` files.
 
 ### Recommended Directory Structure for Inference
@@ -352,7 +373,7 @@ data_dir/
 
 ## 🧪 Data Preparation
 
-### 🔹 IXI normal Training Data
+### 🔹 IXI Healthy Training Data
 
 Convert IXI T1 NIfTI volumes to 2D `.npz` slices:
 
@@ -504,15 +525,20 @@ python Train_framework.py --stage2 \
 
 > ⚠️ Stage 2 requires a valid Stage 1 checkpoint. **The Stage 1 model is frozen during Stage 2 training.**
 
-### 📊 Logging
+### 📊 Logging and Checkpointing
 
 `Train_framework.py` uses:
+
 - `CSVLogger`
 - Optional `WandbLogger`
 - `LearningRateMonitor`
 - `ModelCheckpoint`
 
-Disable W&B with `--wandb-off`.
+Disable W&B with:
+
+```bash
+--wandb-off
+```
 
 > 🔐 **Privacy note:** Do not log patient-identifiable information to W&B, filenames, plots, or shared logs.
 
@@ -526,13 +552,13 @@ Main script: **`Inference_Brain_Experiments.py`**
 
 `load_models(stage1_ckpt, stage2_ckpt, device)` loads Stage 1 and Stage 2 checkpoints. Stage 1 perceptual-loss keys are stripped during inference loading, so **BiomedCLIP is not required for inference**.
 
-### Step 1️⃣ — normal Calibration
+### Step 1️⃣ — Healthy Calibration
 
-Calibration estimates per-pixel normal LPIPS statistics:
+Calibration estimates per-pixel healthy LPIPS statistics:
 
 ```text
-mu[h, w]    = mean LPIPS (reconstruction vs. healed) over normal calibration slices
-sigma[h, w] = std  LPIPS (reconstruction vs. healed) over normal calibration slices
+mu[h, w]    = mean LPIPS (reconstruction vs. healed) over healthy calibration slices
+sigma[h, w] = std  LPIPS (reconstruction vs. healed) over healthy calibration slices
 ```
 
 ```bash
@@ -540,7 +566,7 @@ python Inference_Brain_Experiments.py \
     --calibration-mode \
     --stage1-ckpt /path/to/stage1.ckpt \
     --stage2-ckpt /path/to/stage2.ckpt \
-    --data-dir /path/to/normal_calibration_slices \
+    --data-dir /path/to/healthy_calibration_slices \
     --output-dir /path/to/calibration_output \
     --calibration-map /path/to/zscore_calibration.npz \
     --smoothing-kernel 7 \
@@ -548,9 +574,20 @@ python Inference_Brain_Experiments.py \
     --device cuda:0
 ```
 
+The calibration file contains:
+
+| Key | Meaning |
+|---|---|
+| `mu` | Global per-pixel mean LPIPS map |
+| `sigma` | Global per-pixel std LPIPS map |
+| `n_samples` | Number of calibration slices |
+| `smoothing_kernel` | Smoothing kernel used during calibration |
+
 Calibration writes an audit file `calibration_input_files.txt`. **Keep this file** with the experiment outputs because it records which slices were used for calibration.
 
 > 🚨 **Critical reproducibility rule:** Use the **same** `--smoothing-kernel` during calibration and inference.
+
+Calibration generation itself is marked AYNU in the refactor blueprint because the AUROC path loads an existing calibration map; nevertheless, calibration is required to create that map for a new dataset or model.
 
 ### Step 2️⃣ — Anomaly Inference
 
@@ -566,14 +603,14 @@ python Inference_Brain_Experiments.py \
     --num-iterations 1 \
     --heal-patterns "4" \
     --token-surprisal-samples 100 \
-    --token-surprisal-mask-ratio 0.820 \
+    --token-surprisal-mask-ratio 0.80 \
     --annotation-csv /path/to/Annotated_fastMRI_Brains_Detailed.csv \
     --device cuda:0
 ```
 
 The script supports many additional switches for filtering, batch running over label folders, annotation coordinate handling, TTA, binary fusion, LPIPS backflow, visualization, and output control.
 
-> 💾 **Because defaults are experiment-specific, save the exact CLI command with each run.**
+> 💾 These defaults are experiment-specific. **Save the exact CLI command with each run.**
 
 ### ⚙️ Current Important Inference Defaults
 
@@ -587,7 +624,15 @@ The script supports many additional switches for filtering, batch running over l
 | `--heal-temperature` | `0.9` |
 | `--heal-patterns` | `"4"` |
 | `--token-surprisal-samples` | `100` |
-| `--token-surprisal-mask-ratio` | `0.820` |
+| `--token-surprisal-mask-ratio` | `0.80` |
+| `--token-surprisal-clamp` | `5.0` |
+| `--binary-token-surprisal-threshold` | `5.0` |
+| `--binary-threshold` | `0.60` |
+| `--binary-include-token-surprisal` | enabled by default |
+| `--binary-include-lpips-backflow` | disabled by default |
+| `--binary-edge-erosion-iters` | `0` (disabled by default) |
+| `--binary-center-protect-radius-ratio` | `0.35` |
+| `--binary-edge-erosion-kernel` | `13` |
 | `--inpaint-steps` | `12` |
 | `--inpaint-temperature` | `0.5` |
 | `--batch-size` | `320` |
@@ -616,9 +661,9 @@ Inside `recursive_automask_v4_zscore(...)`, the CORE flow is:
         ↓
 8. Optionally refine with targeted token inpainting
         ↓
-9. Binary_Sum_Heatmap = (ALM-A ∪ ALM-B) + (edge cleanup if needed) 
+9. Final_Binary_sum_of_anomaly_maps = count(ALM-A ∪ ALM-B [∪ LPIPS-backflow if enabled] [after edge erosion if enabled; disabled by default])
         ↓
-10. Write per-slice JSON fields (including Binary_Sum_Heatmap and token_surprisal_hot_px)
+10. Write per-slice JSON fields, including Final_Binary_sum_of_anomaly_maps and token_surprisal_hot_px
 ```
 
 ### 📤 Output JSON Fields
@@ -627,11 +672,13 @@ Main output file: **`results_v4_zscore.json`**
 
 | Field | Type | Meaning |
 |---|:---:|---|
-| `Binary_Sum_Heatmap` | 🟢 CORE | Per-slice binary/perceptual fused pixel count used in `sum_all_bars_score` |
-| `token_surprisal_hot_px` | 🟢 CORE | Per-slice token-surprisal hot-pixel count used in `sum_all_bars_score` |
-| `Binary_Sum_Heatmap_Base` | 🟡 AYNU | Base binary component |
-| `Binary_Sum_Heatmap_Token` | 🟡 AYNU | Token-surprisal binary component |
-| `Binary_Sum_Heatmap_Overlap` | 🟡 AYNU | Overlap component |
+| `Final_Binary_sum_of_anomaly_maps` | 🟢 CORE | Per-slice final fused binary ALM count used in `sum_all_bars_score`; includes ALM-B when token fusion is enabled |
+| `token_surprisal_hot_px` | 🟡 AYNU | Per-slice token-surprisal hot-pixel count retained for audit/ablation only; not added separately by the ROC script |
+| `Final_Binary_sum_of_anomaly_maps_Base` | 🟡 AYNU | ALM-A binary count before token/backflow union |
+| `Final_Binary_sum_of_anomaly_maps_Token` | 🟡 AYNU | ALM-B token-surprisal binary count before overlap union |
+| `Final_Binary_sum_of_anomaly_maps_Overlap` | 🟡 AYNU | ALM-A ∩ ALM-B overlap before backflow union |
+| `Final_Binary_sum_of_anomaly_maps_LPIPS_Backflow` | 🟡 AYNU | LPIPS-backflow binary count; contributes only if `--binary-include-lpips-backflow` is enabled |
+| `Binary_Edge_Erosion_Iters` | 🟡 AYNU | Edge erosion iterations used; 0 = disabled (default) |
 | `case_folder` | 🔹 meta | Immediate parent folder of the slice file |
 | `category` | 🔹 meta | CLI-supplied or inferred batch category |
 | `sharpness_score` | 🟡 AYNU | Motion/blur-related auxiliary score |
@@ -641,15 +688,16 @@ Main output file: **`results_v4_zscore.json`**
 | `inside_bbox_detection_ratio` | 🟡 AYNU | Auxiliary localization ratio |
 | `precision`, `f1_score` | 🟡 AYNU | Auxiliary per-slice localization metrics |
 
-### 🖼️ CORE Visualization Outputs (per slice, saved by default)
+### 🖼️ Visualization Outputs
 
-| File | Panels | Purpose |
+| File | Figures shown | Purpose |
 |---|---|---|
-| `_Final_ALM_Heatmap.png` | 🟢 Input · Score · **ALM-A (LPIPS binary)** · **ALM-B (Token binary)** · Overlay · **A∪B combined mask** | Direct visual verification that the saved binary mask matches `Binary_Sum_Heatmap` |
-| `_Anomaly_Overlay.png` | Input · Healed · Heatmap overlay · LPIPS+Token overlay · LPIPS raw · **Binary+Token map (A∪B)** · Erosion effect | Clinical-style overlay with annotation boxes and detection status |
-| `_full.png` | Multi-panel diagnostic figure | Full pipeline diagnostics (AYNU) |
+| `_Final_ALM_Arithmetic.png` | Input · normalized ALM-A · normalized ALM-B · normalized LPIPS-backflow if available · arithmetic overlay · binary component maps | Default qualitative figure; visual review only, not used by ROC |
+| `_Final_ALM_Heatmap.png` | Input · Score · **ALM-A (LPIPS binary)** · **ALM-B (Token binary)** · Overlay · final binary mask | Optional figure enabled by `--save-alm-heatmap-png`; can be interesting for debugging. |
+| `_Anomaly_Overlay.png` | Input · Healed · Heatmap overlay · LPIPS+Token overlay · LPIPS raw · **Binary+Token map** · Erosion effect | Optional full analysis figure enabled by `--include-full-analysis-figure` |
+| `_full.png` | Multi-panel diagnostic figure | Full pipeline diagnostics for full overview of performance (🟡 AYNU) |
 
-> ✅ `_Final_ALM_Heatmap.png` is the recommended figure for verifying anomaly localization: the rightmost panel (A∪B combined mask) is the exact binary map whose white-pixel count equals `Binary_Sum_Heatmap`.
+> The ROC scripts read JSON fields, not PNGs. `_Final_ALM_Arithmetic.png` independently normalizes components before visualization, so it does not impact the numeric ROC score.
 
 ---
 
@@ -688,13 +736,20 @@ python ROC_Curve_Calculations.py \
     --output-dir /path/to/roc_outputs
 ```
 
+The CORE functions are:
+
+```text
+aggregate_fastmri_binary_token_patient_scores(...)
+compute_fastmri_roc_and_auc(...)
+```
+
 ### 🟢 CORE Aggregation
 
-Performed by `aggregate_fastmri_binary_token_patient_scores(...)`, which sums **both** `token_surprisal_hot_px` and `Binary_Sum_Heatmap` over all included slices for each patient/case:
+Performed by `aggregate_fastmri_binary_token_patient_scores(...)`, which now sums only `Final_Binary_sum_of_anomaly_maps` over all included slices for each patient/case:
 
 ```text
 sum_all_bars_score
-  = Σ_slices (token_surprisal_hot_px + Binary_Sum_Heatmap)
+  = Σ_slices(Final_Binary_sum_of_anomaly_maps)
 ```
 
 `compute_fastmri_roc_and_auc(...)` then computes patient-level ROC/AUROC using:
@@ -709,13 +764,22 @@ sum_all_bars_score
 
 ### ⚠️ Deprecation Notice
 
-> Older README text referred to patient-level aggregation of `clamped_pixel_sum`, or to using only `Binary_Sum_Heatmap` / `binary_token_score`. **That is not the CORE AUROC path in the current cleaned Brain code.**
+> Older README text referred to patient-level aggregation of `clamped_pixel_sum`, to the old field name `Binary_Sum_Heatmap`, or to adding `token_surprisal_hot_px` separately to the final binary map. **That is not the current Brain ROC path.**
 >
 > The primary ROC path uses:
 > ```text
-> sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
+> sum_all_bars_score = Σ_slices(Final_Binary_sum_of_anomaly_maps)
 > ```
-> `binary_token_score` is retained only as a backward-compatible alias for this corrected combined score.
+> `binary_token_score` is retained only as a backward-compatible alias for this final-binary-only score.
+
+### 📊 Outputs
+
+The ROC script can produce:
+
+- ROC curve figures
+- AUROC metrics JSON
+- Patient-level score tables and threshold analyses
+- Category-stratified sensitivity summaries
 
 ---
 
@@ -730,34 +794,27 @@ sum_all_bars_score
 3. Checkpoint hyperparameters
 4. The actual data files selected at runtime
 
-### 💾 For reproducibility, keep:
-
-- [x] The exact CLI command
-- [x] The checkpoint paths / checkpoint hashes if available
-- [x] `calibration_input_files.txt`
-- [x] The produced `results_v4_zscore.json`
-- [x] The version of this code folder
-- [x] The train/validation/test split JSON if relevant
-
 ---
 
-## ✅ Exact Replication Checklist
+## ✅ Framework Replication Checklist
 
 Use this checklist when trying to reproduce the Brain experiment:
 
-- [ ] IXI normal T1 volumes were preprocessed with `IXI_dataset_overview.py`
-- [ ] Saved training arrays are `.npz` files with key `arr`
-- [ ] Training/validation/test patient or slice splits are recorded and reused
+- [ ] IXI healthy T1 volumes were preprocessed with `IXI_dataset_overview.py`
+- [ ] Saved training arrays are `.npz` files with key `arr`; slices are pre-sized during preprocessing — `SliceDataModule` does **not** apply Resize or CenterSpatialCrop at load time
+- [ ] Training/validation/test splits are recorded and reused in JSON file (***Train_Val_Test_Exact_DataSplits_IXI_fastMRI.json***)
 - [ ] Stage 1 checkpoint path is recorded
 - [ ] Stage 2 checkpoint path is recorded
-- [ ] Calibration slices are normal/normal and independent from anomaly evaluation data
+- [ ] Stage 1 decoder output is clamped to `[-3, 3]` — verify calibration maps were computed from the same decoder; note this differs from the Pelvis version which does not clamp
+- [ ] Stage 1 has 5 augmentation transforms (intensity, contrast, noise, affine ±15°/±15 px bidirectional/zoom, flip) applied at the DataModule level via `--augment`; you might need different augmentations based on your specific dataset.
+- [ ] Calibration slices are healthy/normal and independent from anomaly evaluation data
 - [ ] `--smoothing-kernel` is identical between calibration and inference
 - [ ] The exact inference CLI command is saved
 - [ ] `calibration_input_files.txt` is retained
-- [ ] `results_v4_zscore.json` is retained
-- [ ] ROC is computed from `sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)` per patient/case
-- [ ] Ground-truth labels are used only for evaluation, not training/calibration model fitting
-- [ ] No patient-identifying information is exposed in public logs, filenames, figures, or W&B runs
+- [ ] `results_v4_zscore.json` is retained for each cohort. Easy to keep track of cohorts this way.
+- [ ] ROC is computed from `sum_all_bars_score = Σ_slices(Final_Binary_sum_of_anomaly_maps)` per patient/case
+- [ ] Ground-truth labels are used only for evaluation, as only healthy slices shall be used for training and calibration.
+- [ ] No patient-identifying information is exposed in public logs, filenames, figures, or W&B runs.
 
 ---
 
@@ -766,15 +823,23 @@ Use this checklist when trying to reproduce the Brain experiment:
 | Aspect | 🧠 Brain MRI (this folder) | 🦴 Pelvic Version |
 |---|---|---|
 | **Anatomy/domain** | Brain MRI | Pelvic MRI |
-| **Data sources** | IXI normal + fastMRI-style brain evaluation | LUND-PROBE + clinical pelvis workflow |
-| **Stage 2 positional encoding** | 2D RoPE (row/column) | 3D RoPE |
+| **Data sources** | IXI healthy + fastMRI-style brain evaluation | LUND-PROBE + clinical pelvis workflow |
+| **Stage 2 positional encoding** | 2D RoPE (row/column) | 3D RoPE (row, column, slice) |
 | **Codebook size** | 256 per RVQ level | 192 per level |
-| **Main ROC score** | `sum_all_bars_score = Σ_slices(...)` | Same sum-all-bars definition |
-| **Binary fusion** | ALM-A ∪ ALM-B + edge erosion | ALM-A ∪ ALM-B (no erosion) |
+| **Main ROC score** | `sum_all_bars_score = Σ_slices(Final_Binary_sum_of_anomaly_maps)` | Same final-binary-only sum-all-bars definition |
+| **Binary fusion** | ALM-A ∪ ALM-B, optional LPIPS-backflow; edge erosion **disabled by default** | ALM-A ∪ ALM-B ∪ LPIPS-backflow by default; edge erosion **disabled by default** |
 | **Primary LPIPS reference** | Reconstruction-vs-healed/inpainted | Input-vs-healed/inpainted |
 | **File format** | Primarily `.npz` with key `arr` | `.npy` slices |
-| **CORE heatmap output** | `_Final_ALM_Heatmap.png` (6 panels: input, score, ALM-A, ALM-B, overlay, A∪B) | Same |
-| **`_Anomaly_Overlay.png`** | 7 panels incl. Binary+Token map (A∪B) and erosion effect | 6 panels incl. Binary+Token map (A∪B) |
+| **Default qualitative output** | `_Final_ALM_Arithmetic.png` | Same |
+| **`_Anomaly_Overlay.png`** | 7 panels incl. Binary+Token map (A∪B) (erosion panel unchanged when disabled) | 6 panels incl. Binary+Token map (A∪B) |
+| **Decoder output clamping** | Clamped to `[-3, 3]` via `torch.clamp` | **NOT clamped** — decoder output returned directly |
+| **DataModule preprocessing pipeline** | No resize/crop — images pre-sized during IXI NIfTI preprocessing; rotation applied at NIfTI export time | `np.rot90(k=-1)` at load time → `Resize(320×320, area)` → `CenterSpatialCrop(256×256)` |
+| **Stage 1 internal augmentation** | **5 transforms**: intensity scaling, contrast (gamma 0.5–1.5), Gaussian noise (prob=0.50), affine ±15°/±15 px bidirectional/zoom 0.8–1.2, flip (prob=0.50) | **2 transforms**: intensity scaling (prob=0.33) + affine rotation ±5°/horiz-only translation (prob=0.33) — no flip, no contrast, no noise, no zoom |
+| **Stage 2 mask implementation** | Fully vectorized tensor operations; no per-sample CPU syncs | Python `for`-loop per sample in `_apply_mask()` and `_apply_block_mask()` |
+| **`_masked_ce()` implementation** | Avoids fallback via `clamp(min=1)` denominator; never leaves the GPU | Falls back to all tokens when no masked tokens exist |
+| **MultiScaleEncoder code role** | Instantiated in **AYNU block** of `__init__`; `encode_multiscale()` in AYNU methods section; not on the CORE `encode_tokens()` path | Instantiated in **AYNU block** of `__init__`; `encode_multiscale()` in AYNU methods section; not on the CORE `encode_tokens()` path |
+| **Dataset class name** | `SliceDataset` / `SliceDataModule` | `NpySliceDataset` / `SliceDataModule` |
+| **DataModule directory input** | Supports separate `train_dir`/`val_dir` **or** single `data_dir` with seeded split | Single `data_dir` with seeded train/val split only |
 
 ---
 
@@ -810,8 +875,6 @@ Use this checklist when trying to reproduce the Brain experiment:
 
 <div align="center">
 
-### 🧠 Two-Stage Unsupervised Anomaly Detection — Brain MRI
-
-*Research code for medical image analysis using deep learning.*
+### 🧠 Enjoy!! 
 
 </div>
