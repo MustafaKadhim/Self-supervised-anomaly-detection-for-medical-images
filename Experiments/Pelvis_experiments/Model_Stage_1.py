@@ -233,7 +233,7 @@ class Stage1RVQVAE(pl.LightningModule):
         }
 
     # =============================================================================
-    # AVAILABLE YET NOT USED
+    # AVAILABLE YET NOT ROC-Relevant
     # -----------------------------------------------------------------------------
     # The items below are not on the AUROC reproduction path. They are kept for
     # transparency and for readers interested in alternative analyses, training,
@@ -494,7 +494,7 @@ class Stage1RVQVAE(pl.LightningModule):
         )
 
 # =============================================================================
-# AVAILABLE YET NOT USED
+# AVAILABLE YET NOT ROC-Relevant
 # -----------------------------------------------------------------------------
 # The items below are not on the AUROC reproduction path. They are kept for
 # transparency and for readers interested in alternative analyses, training,
