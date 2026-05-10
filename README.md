@@ -124,8 +124,7 @@ The current cleaned code is **not** a single generic autoencoder package. It is 
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  Patient-level score:                                           │
-│  sum_all_bars_score = Σ_slices(token_surprisal_hot_px           │
-│                                + Binary_Sum_Heatmap)            │
+│  sum_all_bars_score = Σ_slices(Final_Binary_sum_of_anomaly_maps)│
 └────────────────────────────┬────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
@@ -146,17 +145,18 @@ The current cleaned code is **not** a single generic autoencoder package. It is 
 </tr>
 </table>
 
-The primary per-slice CORE fields are:
+The primary per-slice CORE field is:
 
 | Field | Meaning |
 |---|---|
-| `Binary_Sum_Heatmap` | Binary-positive pixel count from ALM-A ∪ ALM-B fusion (LPIPS z-score binary OR token-surprisal binary) |
-| `token_surprisal_hot_px` | Token-surprisal hot-pixel count after clamping |
+| `Final_Binary_sum_of_anomaly_maps` | Count of white pixels in the final binary ALM mask after ALM-A ∪ ALM-B fusion, optional LPIPS-backflow, and optional edge erosion (disabled by default). |
 
-Both cleaned experiments aggregate them as:
+`token_surprisal_hot_px` is written to JSON for debugging and ablation only — it is **not** used for the ROC-analysis. `Final_Binary_sum_of_anomaly_maps` already contains ALM-B (binarized token-surprisal) pixels through the fusion; adding `token_surprisal_hot_px` again would double-count token evidence.
+
+Both cleaned experiments aggregate the CORE field as:
 
 ```text
-sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
+sum_all_bars_score = Σ_slices(Final_Binary_sum_of_anomaly_maps)
 ```
 
 ---
@@ -228,7 +228,7 @@ Two independent cleaned experiment folders are provided.
 | **Stage 1** | RVQ-VAE, codebook size 192 per RVQ level |
 | **Stage 2** | Fact-biT with **3D RoPE** |
 | **Main LPIPS reference** | Input-vs-healed/inpainted |
-| **Binary fusion** | ALM-A ∪ ALM-B (no post-fusion erosion) |
+| **Binary fusion** | ALM-A ∪ ALM-B ∪ LPIPS-backflow by default; edge erosion disabled by default |
 | **Evaluation** | Patient-level ROC/AUROC and PR/AUPRC |
 
 Core entry points:
@@ -254,7 +254,7 @@ ROC_Curves_Calculations.py
 | **Stage 1** | RVQ-VAE, codebook size 256 per RVQ level |
 | **Stage 2** | Fact-biT with **2D RoPE** |
 | **Main LPIPS reference** | Reconstruction-vs-healed/inpainted |
-| **Binary fusion** | ALM-A ∪ ALM-B + edge-aware erosion before scoring |
+| **Binary fusion** | ALM-A ∪ ALM-B, optional LPIPS-backflow (disabled by default); edge erosion disabled by default |
 | **Evaluation** | Patient-level ROC/AUROC |
 
 Core entry points:
@@ -277,10 +277,10 @@ ROC_Curve_Calculations.py
 
 ### Primary patient-level score
 
-The latest cleaned Pelvis and Brain READMEs both document the same primary score definition:
+Both experiments use the same primary score definition:
 
 ```text
-sum_all_bars_score = Σ_slices(token_surprisal_hot_px + Binary_Sum_Heatmap)
+sum_all_bars_score = Σ_slices(Final_Binary_sum_of_anomaly_maps)
 ```
 
 ### Evaluation scripts
