@@ -372,11 +372,7 @@ Important safeguards:
 A formal citation will be added when the associated manuscript/preprint is available.
 
 ```bibtex
-@misc{kadhim_two_stage_mri_anomaly_detection,
-  title  = {Two-Stage Unsupervised Anomaly Detection for MRI},
-  author = {Kadhim, Mustafa and collaborators},
-  note   = {Research code; citation details to be updated upon publication}
-}
+Please visit the paper webpage to obtain the DOI. 
 ```
 
 ---
