@@ -372,7 +372,8 @@ Important safeguards:
 A formal citation will be added when the associated manuscript/preprint is available.
 
 ```bibtex
-Please visit the paper webpage to obtain the DOI. 
+Please visit the paper webpage for more details: 
+https://doi.org/10.48550/arXiv.2605.24609 
 ```
 
 ---
