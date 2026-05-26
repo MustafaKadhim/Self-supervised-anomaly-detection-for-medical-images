@@ -26,7 +26,7 @@
 
 <p>
   <a href="https://github.com/MustafaKadhim/Anomaly-Detection-Self-supervised-anomaly-detection-for-medical-images/stargazers ">⭐ Star this repo</a> &nbsp;•&nbsp;
-  <a href="https://www.youtube.com/">📄 Read the paper</a>
+  <a href="https://arxiv.org/abs/2605.24609">📄 Read the paper</a>
 </p>
 
 <picture>
